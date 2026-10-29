@@ -83,6 +83,10 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) {
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${OUT}/${vpName}-book.png` });
   screens.book = await page.evaluate(AUDIT);
+  await page.evaluate(() => { UI.closeInfo(); G.moments = [{ score: 30, round: 5, text: '5라운드, P2이(가) 잡기로 P1·P3의 말 3개를 한 번에 잡음' }]; P(1).st.capt = 3; P(0).st.lost = 2; finishGame(); });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/${vpName}-results.png` });
+  screens.results = await page.evaluate(AUDIT);
   for (const [k, v] of Object.entries(screens)) problems += v.small.length + v.tiny.length + v.hscroll.length;
   report[vpName] = { errors, screens };
   await page.close();
