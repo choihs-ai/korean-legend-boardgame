@@ -3257,7 +3257,8 @@ const UI = {
   canSkip() {
     if (!G || G.over || SKIP || this.wait || this.pick || !$('#modal').hidden || !$('#blind').hidden) return false;
     if (G.alk) return G.alk.p.ai;
-    return G.T ? P(G.T.pid).ai : !!G.draft;
+    if (G.T) return P(G.T.pid).ai;
+    return G.draft ? true : P(G.turnIdx).ai; // 차례와 차례 사이에는 다음 차례 플레이어 기준
   },
   startSkip() {
     SKIP = true;

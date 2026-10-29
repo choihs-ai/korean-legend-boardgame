@@ -11,7 +11,13 @@ await page.evaluate(() => localStorage.clear());
 await page.reload();
 // 사람 1 + AI 3, 일반 속도. 증강 선택은 바로 첫 카드로.
 await page.evaluate(() => { Object.assign(CFG, { n: 4, slots: ['human', 'ai', 'ai', 'ai'], fast: false, chaos: false }); startGame(); });
-const pickCard = async () => { if (await page.isVisible('#mbox .augcard:not([disabled])')) await page.click('#mbox .augcard:not([disabled])'); };
+// 사람에게 오는 선택(증강 카드, 가림막, 선택지, 칸 고르기)은 무엇이든 첫 항목으로 답한다
+const pickCard = async () => {
+  if (await page.isVisible('#blind')) { await page.click('#blind'); return; }
+  if (await page.isVisible('#mbox .augcard:not([disabled])')) { await page.click('#mbox .augcard:not([disabled])'); return; }
+  if (await page.isVisible('#mbox .mbtn:not([disabled]):not(.ghost)')) { await page.click('#mbox .mbtn:not([disabled]):not(.ghost)'); return; }
+  await page.evaluate(() => { if (UI.pick) { const r = UI.pick.res, n = [...UI.pick.set][0]; UI.endPick(); r(n); } });
+};
 // 내 차례가 올 때까지 증강 선택 처리 후, 첫 차례에 윷을 던지고 말을 움직여 AI 차례로 넘긴다
 for (let i = 0; i < 200; i++) {
   await pickCard();
@@ -23,6 +29,17 @@ for (let i = 0; i < 200; i++) {
   await page.waitForTimeout(100);
 }
 // 지금은 AI 차례: 판을 탭해 건너뛰고, 다음 사람 입력까지 걸린 시간을 잰다
+let can = false;
+for (let i = 0; i < 100 && !can; i++) {
+  can = await page.evaluate(() => UI.canSkip());
+  if (!can) { await pickCard(); await page.waitForTimeout(100); }
+}
+if (!can) {
+  const st = await page.evaluate(() => ({ wait: !!UI.wait, pick: !!UI.pick, modal: !$('#modal').hidden, modalTitle: $('#mbox').textContent.slice(0, 60), blind: !$('#blind').hidden, T: G.T && G.T.pid, turnIdx: G.turnIdx, draft: !!G.draft, over: G.over, SKIP, log: G.log.slice(-4) }));
+  console.log('건너뛸 수 있는 상태가 오지 않음', JSON.stringify(st));
+  await browser.close();
+  process.exit(1);
+}
 const box = await page.locator('#board').boundingBox();
 const t0 = Date.now();
 await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
