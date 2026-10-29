@@ -732,7 +732,12 @@ function setRank(p, r, reason) {
 function checkContention() {
   const l = live();
   if (l.length <= 1) {
-    if (l.length === 1) { setRank(l[0], bestFree(), '마지막 생존'); say(`${l[0].name} ${l[0].rank}위 확정`); }
+    if (l.length === 1) {
+      // 남은 한 명이 꼴찌 자리를 받으면 '최하위', 다른 사람이 모두 탈락해 위 순위를 받으면 '마지막 생존'
+      const r = bestFree(), last = G.players.every(q => q === l[0] || (q.rank ?? 0) < r);
+      setRank(l[0], r, last ? '최하위' : '마지막 생존');
+      say(`${l[0].name} ${l[0].rank}위 확정`);
+    }
     G.over = true;
   }
 }
