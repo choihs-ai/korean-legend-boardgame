@@ -2,7 +2,9 @@
 // 가로 스크롤, 44px 미만 터치 영역, 13px 미만 글씨를 찾는다.
 // 사용: node tests/e2e/layout.mjs [--strict]
 import fs from 'node:fs';
-import { chromium, PAGE_URL } from './pw.mjs';
+import { chromium, serve } from './pw.mjs';
+
+const PAGE_URL = await serve();
 
 const STRICT = process.argv.includes('--strict');
 const OUT = 'tests/e2e/out';
@@ -43,7 +45,7 @@ const SETUP_GAME = async () => {
   Object.assign(CFG, { n: 4, slots: ['human', 'ai', 'human', 'ai'], fast: true });
   startGame().catch(() => {});
   await new Promise(r => setTimeout(r, 300));
-  GEN++; UI.closeAll(); G.needDraft = false; G.draft = null; G.round = 5;
+  abortGame(); UI.closeAll(); G.needDraft = false; G.draft = null; G.round = 5;
   const P0 = P(0);
   P0.augs = ['shield', 'hand', 'sniper', 'grail'].map(id => ({ id, used: false, disabled: false, catUntil: 0 }));
   P(1).augs = [{ id: 'coup' }, { id: 'fisher' }, { id: 'queen', used: true }];

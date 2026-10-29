@@ -1,0 +1,33 @@
+import { bumpGen, CFG, G, io, SKIP } from './state.js';
+import { $ } from './util.js';
+import { SFX } from './sound.js';
+import { flushSave } from './save.js';
+import { finishGame, movableLeads, P, resumeGame, startGame } from './rules.js';
+import { animateMove, R } from './render.js';
+import { UI } from './ui.js';
+
+/* =====================================================================
+   22. 시작
+   ===================================================================== */
+// 화면 어댑터 연결: 규칙 코드는 io 를 통해서만 화면·소리를 부른다
+io.ui = UI;
+io.r = R;
+io.sfx = SFX;
+io.animateMove = animateMove;
+UI.init();
+R.init();
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushSave();
+  else if (SFX.ctx && SFX.ctx.state === 'suspended') SFX.ctx.resume();
+});
+window.addEventListener('pagehide', flushSave);
+// 오프라인 캐시(웹 서버에서 열었을 때만)
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+
+
+// 테스트·디버그용 손잡이 (브라우저 콘솔과 Playwright 테스트에서 사용)
+Object.defineProperty(window, 'G', { get: () => G, configurable: true });
+Object.defineProperty(window, 'SKIP', { get: () => SKIP, configurable: true });
+Object.assign(window, { CFG, UI, R, P, $, startGame, resumeGame, finishGame, movableLeads, abortGame: bumpGen });

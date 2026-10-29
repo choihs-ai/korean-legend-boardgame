@@ -1,15 +1,14 @@
 // 모여서 하기 모드: 사람이 2명 이상이면 비밀 투표·지목 증강이 선택지에 나오지 않는지 확인.
 // 사용: node tests/gather.mjs
-import { loadGame } from './lib/load-game.mjs';
+import { state, rules, seed } from './lib/engine.mjs';
 
 const SECRET = ['getdown', 'detective', 'delivery', 'plan', 'whoami'];
 function sample(slots, gather) {
-  const g = loadGame({ seed: 77 });
-  const { ctx } = g;
-  Object.assign(g.api.CFG, { n: 4, slots, gather });
-  ctx.newGame();
+  seed(77);
+  Object.assign(state.CFG, { n: 4, slots, gather });
+  rules.newGame();
   const seen = new Set();
-  for (let i = 0; i < 3000; i++) for (const cat of ['start', 'mid', 'end']) for (const id of ctx.drawOptions(g.api.P(0), cat, new Set())) seen.add(id);
+  for (let i = 0; i < 3000; i++) for (const cat of ['start', 'mid', 'end']) for (const id of rules.drawOptions(rules.P(0), cat, new Set())) seen.add(id);
   return SECRET.filter(id => seen.has(id));
 }
 const cases = [

@@ -1,6 +1,8 @@
 // AI 차례 중 판을 탭하면 남은 연출을 건너뛰는지 확인.
 // 사용: node tests/e2e/skip.mjs
-import { chromium, PAGE_URL } from './pw.mjs';
+import { chromium, serve } from './pw.mjs';
+
+const PAGE_URL = await serve();
 
 const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true })).newPage();

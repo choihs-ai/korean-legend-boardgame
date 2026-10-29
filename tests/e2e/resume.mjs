@@ -1,6 +1,8 @@
 // 이어하기 검증(브라우저): 게임 도중 저장 → 새로고침 → 이어하기 → 같은 상태인지 확인.
 // 사용: node tests/e2e/resume.mjs
-import { chromium, PAGE_URL } from './pw.mjs';
+import { chromium, serve } from './pw.mjs';
+
+const PAGE_URL = await serve();
 
 const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
