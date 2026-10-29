@@ -1,4 +1,4 @@
-// AI 4명 봇 대전: 일반/혼돈 모드 각 N판을 돌려 예외, 무한 루프, 승자 없는 종료를 찾는다.
+// AI 4명 봇 대전: 일반/혼돈 모드 각 N판(난이도 쉬움·보통·어려움 번갈아)을 돌려 예외, 무한 루프, 승자 없는 종료를 찾는다.
 // 사용: node tests/bot-battle.mjs [판 수=200] [시작 시드=1]
 import { loadGame, runOneGame, summarize } from './lib/load-game.mjs';
 
@@ -13,7 +13,8 @@ for (const mode of ['normal', 'chaos']) {
   for (let i = 0; i < GAMES; i++) {
     const seed = SEED0 + i + (mode === 'chaos' ? 100000 : 0);
     const game = loadGame({ seed });
-    const cfg = { n: 4, slots: ['ai', 'ai', 'ai', 'ai'], chaos: mode === 'chaos', endOnFirst: false, fast: true };
+    const difficulty = ['easy', 'normal', 'hard'][i % 3];
+    const cfg = { n: 4, slots: ['ai', 'ai', 'ai', 'ai'], chaos: mode === 'chaos', endOnFirst: false, fast: true, difficulty };
     const r = await runOneGame(game, cfg);
     const G = game.api.G;
     const sum = G ? summarize(G) : null;
@@ -28,7 +29,7 @@ for (const mode of ['normal', 'chaos']) {
       const early = G.log.find(l => /^\[[12]R\].*특수 승리/.test(l));
       if (early) bad.push('3라운드 전 특수 승리: ' + early);
     }
-    if (bad.length) failures.push({ mode, seed, bad, sum, log: G ? G.log.slice(-6) : [] });
+    if (bad.length) failures.push({ mode, difficulty, seed, bad, sum, log: G ? G.log.slice(-6) : [] });
     if (G) for (const p of G.players) if ((p.outReason || '').startsWith('특수 승리')) wins[p.outReason] = (wins[p.outReason] || 0) + 1;
   }
 }
