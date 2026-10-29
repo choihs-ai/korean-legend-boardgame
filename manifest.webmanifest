@@ -1,0 +1,15 @@
+{
+  "name": "초능력윷놀이",
+  "short_name": "초능력윷놀이",
+  "description": "한 기기로 2~4명이 돌아가며 하는 증강 윷놀이",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1d1c1a",
+  "theme_color": "#1d1c1a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
