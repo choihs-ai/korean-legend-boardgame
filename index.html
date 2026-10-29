@@ -74,6 +74,8 @@ button:disabled{cursor:default}
 .switch-row input:checked + .sw::after{content:"";position:absolute;left:8px;top:2px;width:7px;height:14px;border:solid #f6efdc;border-width:0 3px 3px 0;transform:rotate(45deg)}
 .start-btn{min-height:62px;border-radius:3px;background:var(--seal);color:#f6efdc;font-family:var(--font-display);font-size:24px;font-weight:400;letter-spacing:.3em;padding-left:.3em}
 .start-btn:active{background:var(--seal2)}
+.start-btn.resume{background:var(--hanji);color:var(--sumi);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding-block:8px}
+.start-btn.resume small{font-family:var(--font-body);font-size:13px;letter-spacing:0;font-weight:700;color:var(--sumi2)}
 .title-links{display:flex;gap:10px}
 .title-links button{flex:1;min-height:48px;border-radius:3px;border:1.5px solid var(--line);font-weight:700}
 .title-links button:active{background:var(--ink3)}
@@ -208,6 +210,16 @@ button:disabled{cursor:default}
   border:1px solid var(--line);border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:12px;-webkit-user-select:text;user-select:text}
 .mbox::before{content:"";flex:none;height:4px;margin:-16px -16px 0;background:var(--dan)}
 #modal.peek .mbox{max-height:52%}
+#modal.sheet{align-items:flex-end;background:rgba(12,11,10,.28);padding-bottom:0}
+#modal.sheet .mbox{max-height:60%;border-radius:6px 6px 0 0;border-bottom:0;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 16px);transition:transform .25s ease}
+#modal.sheet.lowered{background:transparent;pointer-events:none}
+#modal.sheet.lowered .mbox{transform:translateY(calc(100% - 80px - env(safe-area-inset-bottom,0px)));pointer-events:auto;overflow:hidden}
+.sheet-head{display:flex;align-items:center;gap:10px}
+.sheet-head .mtitle{flex:1;min-width:0}
+.mbtn.peekbtn{flex:none;min-height:44px;padding:0 14px;align-items:center}
+#modal.sheet .augcards{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+#modal.sheet .augcard{flex:0 0 min(84%,300px);scroll-snap-align:start}
+@media (prefers-reduced-motion:reduce){#modal.sheet .mbox{transition:none}}
 .mtitle{font-family:var(--font-display);font-size:21px;font-weight:400;margin:0;text-wrap:balance;line-height:1.3}
 .mdesc{margin:0;color:var(--muted);font-size:13px;line-height:1.55}
 .mopts{display:flex;flex-wrap:wrap;gap:8px}
@@ -293,11 +305,12 @@ button:disabled{cursor:default}
       <div id="slots"></div>
     </section>
     <section class="setup-card" aria-label="게임 옵션">
-      <label class="switch-row" for="optChaos"><span><b>혼돈 모드</b><small>1·6·12라운드마다 증강을 2번씩 선택 (총 6개)</small></span><input type="checkbox" id="optChaos"><i class="sw"></i></label>
+      <label class="switch-row" for="optChaos"><span><b>혼돈 모드</b><small>1·4·8라운드마다 증강을 2번씩 선택 (총 6개)</small></span><input type="checkbox" id="optChaos"><i class="sw"></i></label>
       <label class="switch-row" for="optFirst"><span><b>1위가 나오면 바로 종료</b><small>끄면 마지막 순위까지 겨룹니다</small></span><input type="checkbox" id="optFirst"><i class="sw"></i></label>
       <label class="switch-row" for="optSound"><span><b>효과음</b><small>Web Audio로 합성한 소리</small></span><input type="checkbox" id="optSound" checked><i class="sw"></i></label>
       <label class="switch-row" for="optFast"><span><b>AI 빠르게</b><small>AI 차례 연출 시간을 줄입니다</small></span><input type="checkbox" id="optFast"><i class="sw"></i></label>
     </section>
+    <button type="button" id="resumeBtn" class="start-btn resume" hidden>이어하기</button>
     <button type="button" id="startBtn" class="start-btn">판 펼치기</button>
     <div class="title-links">
       <button type="button" id="rulesBtn1">룰북</button>
@@ -356,6 +369,9 @@ const sleep = ms => { const g = GEN; return new Promise((res, rej) => setTimeout
 const noEmoji = s => String(s).replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '').replace(/\s{2,}/g, ' ').trim();
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const HOME = -1, DONE = 99;
+const DRAFT_ROUNDS = [1, 4, 8];      // 증강 선택 라운드 (시작 / 중간 / 마무리)
+const WIN_FROM_ROUND = 3;           // 특수 승리는 이 라운드부터 발동
+const KIM_TURNS = 5;                // 김첨지 완주 제한 차례
 const RES_NAME = { '-1': '빽도', 1: '도', 2: '개', 3: '걸', 4: '윷', 5: '모', 6: '특대모' };
 const resName = v => RES_NAME[v] ?? String(v);
 const PCOL = ['#c4412e', '#2f64a8', '#3d8a5c', '#d6a21f'];
@@ -480,7 +496,7 @@ function defaultPrev(n, rev) {
 
 /* =====================================================================
    4. 증강 72종 데이터 (원문 이름·설명 그대로)
-   cat: general 범용 / start 시작(1R) / mid 중간(6R) / end 마무리(12R)
+   cat: general 범용 / start 시작(1R) / mid 중간(4R) / end 마무리(8R)
    kind: active 액티브 / passive 패시브 / instant 즉발 / win 승리 조건
    ===================================================================== */
 const AUGS = [
@@ -585,7 +601,7 @@ function newGame() {
   G = {
     players: [], n: CFG.n, chaos: CFG.chaos, endOnFirst: CFG.endOnFirst, round: 1, turnIdx: 0, over: false, needDraft: true,
     alias: {}, folds: [], rotations: 0, poops: [], traps: [], garlics: [], targets: [], fog: null, mask: null,
-    chosenRule: false, echo: null, echoSecond: false, murder: false, duel: null, rankTaken: new Set(),
+    chosenRule: false, echo: null, echoSecond: false, murder: false, duel: null, rankTaken: new Set(), pendingWins: [],
     log: [], T: null, draft: null, alk: null, anim: null, fx: [], planWinner: null
   };
   for (let i = 0; i < CFG.n; i++) G.players.push(makePlayer(i, CFG.slots[i] === 'ai'));
@@ -710,6 +726,14 @@ async function tryCancel(p, why, augId, isFinish) {
 }
 async function specialWin(p, why, augId) {
   if (!G || G.over || p.out) return false;
+  if (G.round < WIN_FROM_ROUND) {
+    // 조건은 기록해 두고 3라운드가 되면 발동
+    if (!G.pendingWins.some(w => w.pid === p.id && w.augId === augId)) {
+      G.pendingWins.push({ pid: p.id, why, augId });
+      say(`${p.name}: ${why} 달성 — ${WIN_FROM_ROUND}라운드부터 승리가 발동합니다`, p.color);
+    }
+    return false;
+  }
   if (await tryCancel(p, why, augId, false)) return false;
   SFX.play('win');
   UI.flash(`${p.name} 승리!`, p.color);
@@ -718,6 +742,8 @@ async function specialWin(p, why, augId) {
   return true;
 }
 async function onFinish(p, pcs) {
+  // 김첨지는 내 다른 말보다 먼저(또는 함께) 완주해야 한다
+  if (!pcs.some(x => x.type === 'kim') && p.pieces.some(x => x.type === 'kim' && x.pos !== DONE)) p.st.kimSpoiled = true;
   for (const pc of pcs) { pc.pos = DONE; pc.trail = []; pc.shield = 0; pc.boundUntil = 0; p.lastDone = pc.id; }
   SFX.play('finish');
   say(`${p.name} 말 ${pcs.length}개 완주! (${doneCount(p)}/${needPieces(p).length})`);
@@ -730,7 +756,7 @@ async function onFinish(p, pcs) {
     await eliminate(c, '승부다! 패배');
     if (G.over || p.out) return;
   }
-  if (pcs.some(x => x.type === 'kim') && has(p, 'kim') && p.st.kimTurns <= 6) { if (await specialWin(p, `김첨지 ${p.st.kimTurns}차례 만에 완주`, 'kim')) return; }
+  if (pcs.some(x => x.type === 'kim') && has(p, 'kim') && p.st.kimTurns <= KIM_TURNS && !p.st.kimSpoiled) { if (await specialWin(p, `김첨지 ${p.st.kimTurns}차례 만에 완주`, 'kim')) return; }
   if (pcs.some(x => x.type === 'marathon') && has(p, 'marathon')) { if (await specialWin(p, '마라토너 완주', 'marathon')) return; }
   if (p.out || G.over) return;
   if (needPieces(p).every(x => x.pos === DONE)) {
@@ -1413,7 +1439,7 @@ const ON_ACQ = {
   },
   kim: async p => {
     const pc = await pickOwnPiece(p, x => x.type === 'normal' && x.pos !== DONE, '김첨지로 바꿀 일반말');
-    if (pc) { pc.type = 'kim'; p.st.kimTurns = 0; say(`🍜 ${p.name}: 김첨지 — 6차례 안에 완주하면 승리!`); }
+    if (pc) { pc.type = 'kim'; p.st.kimTurns = 0; p.st.kimSpoiled = false; say(`${p.name}: 김첨지 — ${KIM_TURNS}차례 안에, 다른 말보다 먼저 완주하면 승리!`); }
   },
   queen: async p => {
     const pc = p.pieces.find(x => x.type === 'normal' && x.pos === HOME) || p.pieces.find(x => x.type === 'normal' && x.pos !== DONE);
@@ -1864,7 +1890,7 @@ async function playTurn(p) {
 function newRound() {
   G.round++;
   if (G.round > 80) { say('80라운드가 지나 진행도로 순위를 정합니다', true); G.over = true; return; }
-  if (G.round === 6 || G.round === 12) G.needDraft = true;
+  if (DRAFT_ROUNDS.includes(G.round)) G.needDraft = true;
   if (G.fog && G.round >= G.fog.until) { G.fog = null; say('🌫 안개가 걷혔습니다'); }
   say(`── ${G.round}라운드 ──`);
 }
@@ -1882,7 +1908,7 @@ function advanceTurn() {
 }
 
 /* =====================================================================
-   15. 증강 선택 라운드 (1R 시작 / 6R 중간 / 12R 마무리)
+   15. 증강 선택 라운드 (1R 시작 / 4R 중간 / 8R 마무리)
    ===================================================================== */
 function drawOptions(p, cat, excl) {
   const owned = id => p.augs.some(a => a.id === id);
@@ -1894,7 +1920,7 @@ function drawOptions(p, cat, excl) {
   return opts;
 }
 async function draftRound() {
-  const cat = G.round === 1 ? 'start' : G.round === 6 ? 'mid' : 'end';
+  const cat = G.round === DRAFT_ROUNDS[0] ? 'start' : G.round === DRAFT_ROUNDS[1] ? 'mid' : 'end';
   G.draft = { cat, banned: new Set(), picks: [], reroll: false };
   render();
   UI.flash(`${G.round}라운드 증강 선택`, '#e3b34a');
@@ -1929,8 +1955,20 @@ async function draftRound() {
 /* =====================================================================
    16. 메인 루프 · 종료
    ===================================================================== */
+async function flushPendingWins() {
+  const list = G.pendingWins;
+  G.pendingWins = [];
+  for (const w of list) {
+    const p = P(w.pid);
+    if (G.over || p.out || !has(p, w.augId)) continue;
+    say(`${WIN_FROM_ROUND}라운드: 미뤄 둔 ${p.name}의 승리 조건이 발동합니다`);
+    await specialWin(p, w.why, w.augId);
+  }
+}
 async function gameLoop() {
   while (!G.over) {
+    checkpoint();
+    if (G.round >= WIN_FROM_ROUND && G.pendingWins.length) { await flushPendingWins(); if (G.over) break; }
     if (G.needDraft) { G.needDraft = false; await draftRound(); if (G.over) break; }
     const p = P(G.turnIdx);
     if (p.out) { advanceTurn(); continue; }
@@ -1948,6 +1986,7 @@ async function gameLoop() {
 async function finishGame() {
   G.over = true;
   G.T = null;
+  clearSave();
   const rest = G.players.filter(p => p.rank == null).sort((a, b) => progress(b) - progress(a));
   for (const p of rest) { const r = bestFree(); p.rank = r; G.rankTaken.add(r); p.outReason = p.outReason || '진행도 기준 순위'; }
   const order = G.players.slice().sort((a, b) => a.rank - b.rank || a.id - b.id);
@@ -1970,9 +2009,58 @@ async function finishGame() {
   UI.results(order);
 }
 const ABORT = new Error('게임 중단');
+
+/* ----- 중간 저장 / 이어하기 -----
+   차례가 시작되기 직전(이전 차례가 끝난 시점)의 상태를 저장한다. 차례 도중에 앱이 닫히면
+   그 차례의 처음부터 이어진다. Set 은 {__set:[...]} 로 바꿔 저장한다. */
+const SAVE_KEY = 'augyut-save-v1';
+let lastSnap = null;
+function serializeGame() {
+  const g = { ...G, T: null, draft: null, alk: null, anim: null, fx: [], mask: null };
+  return JSON.stringify({ v: 1, cfg: { ...CFG, slots: CFG.slots.slice() }, pieceId: PIECE_ID, G: g },
+    (k, v) => (v instanceof Set ? { __set: [...v] } : v));
+}
+function parseSave(str) {
+  try {
+    const snap = JSON.parse(str, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v.__set) && Object.keys(v).length === 1 ? new Set(v.__set) : v));
+    if (!snap || snap.v !== 1 || !snap.G || !Array.isArray(snap.G.players) || snap.G.over) return null;
+    return snap;
+  } catch (e) { return null; }
+}
+function readSave() { try { const s = localStorage.getItem(SAVE_KEY); return s ? parseSave(s) : null; } catch (e) { return null; } }
+function writeSave(str) { if (!str) return; try { localStorage.setItem(SAVE_KEY, str); } catch (e) { /* 저장 공간이 없어도 게임은 계속 */ } }
+function clearSave() { lastSnap = null; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 무시 */ } }
+function checkpoint() {
+  if (!G || G.over) return;
+  try { lastSnap = serializeGame(); } catch (e) { lastSnap = null; return; }
+  writeSave(lastSnap);
+}
+function flushSave() { if (G && !G.over && lastSnap) writeSave(lastSnap); }
+function restoreSnap(snap) {
+  Object.assign(CFG, snap.cfg, { slots: snap.cfg.slots.slice() });
+  PIECE_ID = snap.pieceId;
+  G = snap.G;
+  G.T = null; G.draft = null; G.alk = null; G.anim = null; G.fx = []; G.mask = null;
+  if (!G.pendingWins) G.pendingWins = [];
+  if (!(G.rankTaken instanceof Set)) G.rankTaken = new Set(G.rankTaken || []);
+}
+async function resumeGame() {
+  const snap = readSave();
+  if (!snap) { UI.buildTitle(); return; }
+  GEN++;
+  UI.closeAll();
+  restoreSnap(snap);
+  window.__resumeCheck = serializeGame();
+  UI.enterGame();
+  render();
+  say(`저장된 판을 ${G.round}라운드부터 이어서 합니다`);
+  try { await gameLoop(); }
+  catch (e) { if (e !== ABORT) { console.error(e); UI.toast('오류: ' + e.message, '#e33'); } }
+}
 async function startGame() {
   GEN++;
   UI.closeAll();
+  clearSave();
   newGame();
   UI.enterGame();
   render();
@@ -2280,7 +2368,7 @@ const AI = {
     return (strong.length ? pick(strong) : pick(pool)).value;
   },
   delivery(p) {
-    const next = G.round < 6 ? 'mid' : G.round < 12 ? 'end' : 'general';
+    const next = G.round < DRAFT_ROUNDS[1] ? 'mid' : G.round < DRAFT_ROUNDS[2] ? 'end' : 'general';
     const pool = AUGS.filter(a => (a.cat === next || a.cat === 'general') && !p.augs.some(x => x.id === a.id) && a.id !== 'delivery');
     return pool.sort((a, b) => (this.W[b.id] ?? 4) - (this.W[a.id] ?? 4) + (Math.random() - 0.5))[0].id;
   },
@@ -2840,6 +2928,7 @@ const UI = {
     }
     $('#optSound').addEventListener('change', e => { SFX.on = e.target.checked; CFG.sound = SFX.on; this.saveCfg(); });
     $('#startBtn').addEventListener('click', () => { SFX.init(); SFX.play('aug'); startGame(); });
+    $('#resumeBtn').addEventListener('click', () => { SFX.init(); SFX.play('aug'); resumeGame(); });
     $('#rulesBtn1').addEventListener('click', () => this.rules());
     $('#bookBtn1').addEventListener('click', () => this.book());
     $('#chips').addEventListener('click', e => {
@@ -2892,6 +2981,10 @@ const UI = {
   },
   saveCfg() { try { localStorage.setItem('augyut-cfg', JSON.stringify({ ...CFG, sound: SFX.on })); } catch (e) { /* 무시 */ } },
   buildTitle() {
+    const snap = readSave(), rb = $('#resumeBtn');
+    rb.hidden = !snap;
+    if (snap) rb.innerHTML = `이어하기<small>${snap.G.round}라운드 · ${snap.G.players.length}인${snap.G.chaos ? ' · 혼돈' : ''}</small>`;
+    $('#startBtn').textContent = snap ? '새 게임' : '판 펼치기';
     document.querySelectorAll('#countSeg button').forEach(b => b.classList.toggle('on', +b.dataset.n === CFG.n));
     $('#slots').innerHTML = [0, 1, 2, 3].map(i => `<div class="slot"${i >= CFG.n ? ' hidden' : ''}>
       <i class="sdot" style="background:${PCOL[i]}"></i>
@@ -2953,9 +3046,9 @@ const UI = {
   },
   topbar() {
     $('#roundLbl').textContent = `${G.round}R`;
-    const max = Math.max(13, G.round + 1);
+    const max = Math.max(DRAFT_ROUNDS[2] + 3, G.round + 1);
     let gh = '';
-    for (let r = 1; r <= max; r++) gh += `<i class="${[1, 6, 12].includes(r) ? 'aug' : ''} ${r < G.round ? 'past' : ''} ${r === G.round ? 'now' : ''}"></i>`;
+    for (let r = 1; r <= max; r++) gh += `<i class="${DRAFT_ROUNDS.includes(r) ? 'aug' : ''} ${r < G.round ? 'past' : ''} ${r === G.round ? 'now' : ''}"></i>`;
     $('#rGauge').innerHTML = gh;
     let tl = '';
     if (G.over) tl = '게임 종료';
@@ -2981,7 +3074,7 @@ const UI = {
     if (has(q, 'score')) s.push(`<span class="st stamps" aria-label="악보">${[-1, 1, 2, 3, 4, 5].map(k => `<i class="${q.st.seen[k] ? 'on' : ''}">${resName(k)[0]}</i>`).join('')}</span>`);
     const g = G.garlics.find(x => x.owner === q.id); if (g && has(q, 'bear')) add('마늘', `${g.got}/3`);
     if (has(q, 'queen') && q.pieces.some(x => x.type === 'queen' && onBoard(x))) add('중전', `${q.st.queenThrows}/12`);
-    if (has(q, 'kim') && q.pieces.some(x => x.type === 'kim' && x.pos !== DONE)) add('김첨지', `${q.st.kimTurns}/6`);
+    if (has(q, 'kim') && q.pieces.some(x => x.type === 'kim' && x.pos !== DONE)) add('김첨지', q.st.kimSpoiled ? '실패' : `${q.st.kimTurns}/${KIM_TURNS}`);
     if (has(q, 'fisher')) add('어부', `${q.st.fish}/2`);
     if (has(q, 'jajin')) add('장단', `${q.st.geol % 2}/2`);
     if (q.domainPiece) add('영역', `${q.st.domainTurns}/2`);
@@ -3092,7 +3185,11 @@ const UI = {
     return new Promise(res => {
       const box = $('#mbox'), m = $('#modal');
       m.classList.toggle('peek', !!o.peek);
-      let h = `<h2 class="mtitle">${esc(o.title)}</h2>`;
+      m.classList.toggle('sheet', !!o.sheet);
+      m.classList.remove('lowered');
+      let h = o.sheet
+        ? `<div class="sheet-head"><h2 class="mtitle">${esc(o.title)}</h2><button type="button" class="mbtn ghost peekbtn" data-peek="1" aria-expanded="true">판 보기</button></div>`
+        : `<h2 class="mtitle">${esc(o.title)}</h2>`;
       if (o.desc) h += `<p class="mdesc">${o.desc}</p>`;
       if (o.cards) h += `<div class="augcards">${o.cards.map((id, i) => this.augCard(id, i, o.locked && o.locked(id))).join('')}</div>`;
       if (o.html) h += o.html;
@@ -3106,13 +3203,19 @@ const UI = {
       box.onclick = e => {
         const b = e.target.closest('button'); if (!b || b.disabled || g !== GEN) return;
         SFX.play('click');
+        if (b.dataset.peek) {
+          const low = m.classList.toggle('lowered');
+          b.textContent = low ? '선택창 올리기' : '판 보기';
+          b.setAttribute('aria-expanded', String(!low));
+          return;
+        }
         if (b.dataset.cancel) { this.closeModal(); res(null); return; }
         if (b.dataset.card != null) { this.closeModal(); res(o.cards[+b.dataset.card]); return; }
         if (b.dataset.i != null) { const op = o.options[+b.dataset.i]; this.closeModal(); res(op.value); }
       };
     });
   },
-  closeModal() { $('#modal').hidden = true; $('#mbox').onclick = null; $('#mbox').innerHTML = ''; this.modalRes = null; },
+  closeModal() { $('#modal').classList.remove('sheet', 'lowered', 'peek'); $('#modal').hidden = true; $('#mbox').onclick = null; $('#mbox').innerHTML = ''; this.modalRes = null; },
   augCard(id, i, locked) {
     const a = AUG_BY[id];
     return `<button type="button" class="augcard" data-card="${i}" ${locked ? 'disabled' : ''}>
@@ -3190,7 +3293,7 @@ const UI = {
     const title = `${p.name} (${p.cname}) · 증강 선택${info.times > 1 ? ` ${info.k + 1}/${info.times}` : ''}`;
     let desc = `${G.round}라운드 — ${CAT_NAME[info.cat]} 전용 + 범용 증강 중 하나를 고르세요.`;
     if (forced) desc += ' <b style="color:#e3b34a">고양이가 나왔습니다! 무조건 골라야 합니다.</b>';
-    return this.modal({ title, desc, cards: opts, locked: id => forced && id !== 'cat' });
+    return this.modal({ title, desc, cards: opts, sheet: true, locked: id => forced && id !== 'cat' });
   },
   async showThrow(p, sets) {
     const box = $('#sticks');
@@ -3239,14 +3342,16 @@ const UI = {
   book() {
     const sec = (cat, title) => `<section class="book-sec"><h3>${title} · ${AUGS.filter(a => a.cat === cat).length}종</h3><div class="book-list">${AUGS.filter(a => a.cat === cat).map(a => `<div class="book-item"><div class="tags"><span class="tg">No.${a.no}</span><span class="tg ${a.kind}">${KIND_NAME[a.kind]}</span></div><b>${esc(a.name)}</b><p>${esc(a.desc)}</p><p class="h">${esc(a.how)}</p></div>`).join('')}</div></section>`;
     this.info('증강 도감', `<div class="mopts"><button type="button" class="mbtn" data-info="rules">룰북 보기</button></div>
-      ${sec('general', '범용 — 1·6·12라운드')}${sec('start', '시작 전용 — 1라운드')}${sec('mid', '중간 전용 — 6라운드')}${sec('end', '마무리 전용 — 12라운드')}`);
+      ${sec('general', '범용 — 1·4·8라운드')}${sec('start', '시작 전용 — 1라운드')}${sec('mid', '중간 전용 — 4라운드')}${sec('end', '마무리 전용 — 8라운드')}`);
   },
   rules() {
     this.info('룰북', `<div class="rules">
       <h3>목표</h3><p>자기 말 4개를 모두 출발점(우하단 0번)에서 한 바퀴 돌려 다시 도착시키면 순위를 얻습니다. 증강의 특수 승리 조건을 이루면 그 즉시 승리합니다.</p>
       <h3>던지기</h3><ul><li>앞면(평평한 면) 개수: 1=도, 2=개, 3=걸, 4=윷, 0=모. 빨간 점이 찍힌 윷 하나만 앞면이면 빽도.</li><li>윷·모가 나오거나 상대 말을 잡으면 한 번 더 던집니다.</li><li>나온 결과는 아래 칩으로 쌓입니다. 칩을 고른 뒤 판 위의 말(또는 대기 말)을 터치해 움직이세요.</li></ul>
       <h3>길</h3><ul><li>5번·10번 모서리나 중앙(22번)에서 출발하면 지름길로 들어갑니다. 5번 지름길로 중앙을 지나면 15번 쪽으로 곧장, 중앙에 멈췄다 출발하면 출구 쪽으로 갑니다.</li><li>출구(0번)에 닿거나 지나면 완주. 빽도로 0번에 앉은 말은 다음 이동에 완주합니다.</li><li>내 말끼리 만나면 업고 함께 움직입니다. 상대 말 칸에 멈추면 잡습니다.</li></ul>
-      <h3>라운드와 증강</h3><ul><li>모든 플레이어가 한 번씩 두면 1라운드.</li><li>1라운드(시작 전용+범용), 6라운드(중간 전용+범용), 12라운드(마무리 전용+범용) 시작에 3장 중 1장을 고릅니다. 혼돈 모드는 2번씩.</li><li>액티브 증강은 내 차례에 아래 금색 버튼으로 씁니다. 빨간 테두리 버튼은 차례를 통째로 씁니다.</li></ul>
+      <h3>라운드와 증강</h3><ul><li>모든 플레이어가 한 번씩 두면 1라운드.</li><li>1라운드(시작 전용+범용), 4라운드(중간 전용+범용), 8라운드(마무리 전용+범용) 시작에 3장 중 1장을 고릅니다. 혼돈 모드는 2번씩.</li><li>액티브 증강은 내 차례에 아래 금색 버튼으로 씁니다. 빨간 테두리 버튼은 차례를 통째로 씁니다.</li></ul>
+      <h3>특수 승리 밸런스</h3><ul><li>증강의 특수 승리 조건은 ${WIN_FROM_ROUND}라운드 전에는 발동하지 않습니다. 조건을 먼저 채우면 기록해 두었다가 ${WIN_FROM_ROUND}라운드가 시작될 때 발동합니다.</li><li>김첨지는 ${KIM_TURNS}차례 안에, 내 다른 말보다 먼저(또는 함께) 완주해야 승리합니다.</li></ul>
+      <h3>이어하기</h3><p>매 차례가 끝날 때 판이 이 기기에 저장됩니다. 앱을 닫았다가 타이틀의 ‘이어하기’를 누르면 그 차례의 처음부터 이어집니다.</p>
       <h3>순위</h3><ul><li>완주·특수 승리는 남은 가장 높은 순위, 탈락은 남은 가장 낮은 순위를 받습니다.</li><li>‘1위가 나오면 바로 종료’를 끄면 마지막 한 명이 남을 때까지 겨룹니다. 그 전에 끝나면 남은 사람은 진행도로 순위를 매깁니다.</li></ul>
       <h3>한 기기에서</h3><p>비밀 선택(계획대로·명탐정·배달·내려 투표·나 누구게?)은 가림막이 뜹니다. 해당 플레이어만 화면을 보고 터치하세요.</p>
       <h3>판 변형</h3><ul><li>게임 접어라: 출구가 있는 절반이 남고 반대편 칸은 거울 칸과 합쳐집니다. 출구와 겹친 모서리는 출구가 됩니다.</li><li>돌려돌려 돌림판: 판이 시계방향 90° 회전하고, 출구 자리는 그대로라 각 말의 남은 거리가 바뀝니다.</li><li>알까기: 판 위 말뭉치가 알이 됩니다. 내 알을 당겼다 놓으면 반대쪽으로 튕겨 나가고, 점선 밖으로 나간 알은 죽습니다.</li></ul>
@@ -3439,7 +3544,11 @@ UI.init();
 R.init();
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('touchmove', e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && SFX.ctx && SFX.ctx.state === 'suspended') SFX.ctx.resume(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushSave();
+  else if (SFX.ctx && SFX.ctx.state === 'suspended') SFX.ctx.resume();
+});
+window.addEventListener('pagehide', flushSave);
 </script>
 </body>
 </html>
