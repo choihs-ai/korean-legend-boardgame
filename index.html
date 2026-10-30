@@ -104,6 +104,9 @@ button:disabled{cursor:default}
 .badge.chaos{background:var(--plum);color:#fff}
 .badge.net{background:var(--ink3);color:var(--hanji);border:1px solid var(--line)}
 .badge.net.warn{border-color:var(--seal);color:#f0a498}
+.mtimer{margin-left:auto;font-weight:800;font-size:15px;color:var(--hanji2)}
+.mtimer.warn{color:#f0a498}
+.sheet-head .mtimer{flex:none;margin-left:0;padding:0 6px}
 .screen#online{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:var(--ink)}
 .on-head{display:flex;align-items:center;gap:12px}
 .on-head .mtitle{margin:0;font-size:22px}
@@ -413,6 +416,7 @@ button:disabled{cursor:default}
     <div class="rbox"><b id="roundLbl">1R</b><div class="rgauge" id="rGauge"></div></div>
     <div id="turnLbl" class="turnlbl"></div>
     <span id="chaosBadge" class="badge chaos" hidden>혼돈</span>
+    <span id="timerBadge" class="badge net" hidden aria-live="off"></span>
     <span id="netBadge" class="badge net" hidden></span>
     <button type="button" id="sndBtn" class="ibtn" aria-label="효과음 켜기/끄기">소리</button>
     <button type="button" id="bookBtn" class="ibtn" aria-label="증강 도감과 룰북">도감</button>

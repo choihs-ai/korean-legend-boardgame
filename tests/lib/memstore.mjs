@@ -14,7 +14,13 @@ export class MemStore {
   hasEntries() { return this.streams.some(s => s.length); }
   answerFor(seat, k) {
     const s = this.streams[seat] || [];
-    for (const e of s) if (e[0] === 0 && e[1] === k) return e[2];
+    for (const e of s) if ((e[0] === 0 || e[0] === 2) && e[1] === k) return e[0] === 0 ? e[2] : undefined;
+    return undefined;
+  }
+  timeoutFor(seat, k) {
+    const s = this.streams[seat] || [];
+    for (const e of s) if ((e[0] === 0 || e[0] === 2) && e[1] === k) return e[0] === 2 ? 'self' : undefined;
+    for (let i = 0; i < this.streams.length; i++) if (i !== seat && this.streams[i].some(e => e[0] === 2 && e[1] === k)) return 'peer';
     return undefined;
   }
   aiFloor(seat) {

@@ -20,5 +20,5 @@ export function setPieceId(v) { PIECE_ID = v; }
 // 규칙 코드가 화면·소리를 직접 부르지 않도록 하는 어댑터. 브라우저에서는 main.js 가,
 // Node 테스트에서는 tests/lib/headless.mjs 가 채운다.
 // 온라인 대전 연결 상태. 오프라인(핫시트)일 때는 online=false 라서 아래 값은 쓰이지 않는다.
-export const NET = { online: false, localSeat: -1, onCheckpoint: null, mySeats: () => [] };
+export const NET = { online: false, localSeat: -1, onCheckpoint: null, simDraft: false };
 export const io = { ui: null, r: null, sfx: null, animateMove: () => Promise.resolve() };

@@ -7,14 +7,14 @@
 //  - AI 좌석은 입력을 받지 않고 엔진이 직접 계산한다(난수가 같으니 모든 기기에서 같은 선택).
 //  - 좌석을 AI 로 바꾸는 명령(type 1)은 "k 번째 입력부터"라는 기준(floor)을 달고 와서 모든 기기가 같은 시점에 적용한다.
 import { CFG, G, io, NET, bumpGen, setInstant, setSkip, GEN } from '../state.js';
-import { ABORT, getRng, setRng, sleep } from '../util.js';
+import { ABORT, AUTO_PICK, getRng, setRng, sleep } from '../util.js';
 import { newGame, gameLoop, P, say } from '../rules.js';
 import { AI } from '../ai.js';
 import { ALK } from '../alkkagi.js';
 import { hashState } from '../save.js';
 import { seededRng } from './sha256.js';
 
-export const T_ANSWER = 0, T_AI = 1;
+export const T_ANSWER = 0, T_AI = 1, T_TIMEOUT = 2;
 
 /* ----- 답 ↔ 문자열/숫자 (기록에는 짧고 단순한 값만 담는다) ----- */
 const allPieces = () => G.players.flatMap(p => p.pieces);
@@ -26,7 +26,8 @@ export class Bridge {
   // store: 입력 기록 저장소(Room 또는 테스트용 가짜)  ui/r/sfx/animateMove: 화면 어댑터
   constructor({ store, ui, r, sfx, animateMove, auto = false, alwaysInstant = false, gate = null, onEvent = () => {} }) {
     Object.assign(this, { store, ui, r, sfx, animateMoveFn: animateMove, auto, alwaysInstant, gate, onEvent });
-    this.k = 0; this.resolved = []; this.waiters = []; this.replaying = false; this.info = null; this.pending = null;
+    this.k = 0; this.resolved = []; this.waiters = []; this.replaying = false; this.info = null;
+    this.pendings = new Map(); this.remotes = new Set(); this.turnRef = null; this.turnLeft = 0; this.privDepth = 0; this.privKeep = null;
     this.privRng = null; this.running = false; this.rebuilds = 0; this.collectCount = 0;
     this.unsub = null;
   }
@@ -36,7 +37,8 @@ export class Bridge {
     this.info = info;
     const gen = bumpGen();
     this.rejectWaiters();
-    this.k = 0; this.resolved = []; this.pending = null;
+    this.k = 0; this.resolved = []; this.pendings.clear(); this.remotes.clear(); this.turnRef = null;
+    this.ui.remotes = []; if (this.ui.setTimer) this.ui.setTimer(null);
     if (this.unsub) this.unsub();
     this.unsub = this.store.subscribe(() => this.onStoreChange());
     if (!this.cfgBackup) this.cfgBackup = { ...CFG, slots: CFG.slots.slice() };   // 끝나면 원래 설정으로 돌려놓는다
@@ -45,7 +47,7 @@ export class Bridge {
       n, slots: Array.from({ length: n }, (_, i) => (i < humans ? 'human' : 'ai')), chaos: !!info.cf.ch, endOnFirst: !!info.cf.ef,
       difficulty: info.cf.df || 'normal', gather: false, names: info.nicks.slice(),
     });
-    NET.online = true; NET.localSeat = this.store.localSeat();
+    NET.online = true; NET.localSeat = this.store.localSeat(); NET.simDraft = true;
     NET.onCheckpoint = () => this.store.reportHash(this.k, hashState());
     setRng(seededRng(info.sd));
     this.install();
@@ -66,7 +68,7 @@ export class Bridge {
     if (this.unsub) { this.unsub(); this.unsub = null; }
     this.uninstall();
     setRng(null); setInstant(this.alwaysInstant); setSkip(false);
-    NET.online = false; NET.localSeat = -1; NET.onCheckpoint = null;
+    NET.online = false; NET.localSeat = -1; NET.onCheckpoint = null; NET.simDraft = false;
     if (this.cfgBackup) { Object.assign(CFG, this.cfgBackup); delete CFG.names; this.cfgBackup = null; }
   }
   leaveReplay() {
@@ -108,10 +110,15 @@ export class Bridge {
   }
 
   /* ----- 기록 조회 ----- */
+  get pending() { const it = this.pendings.values().next(); return it.done ? null : it.value; }
+  pendingFor(seat) { for (const pd of this.pendings.values()) if (pd.seat === seat) return pd; return null; }
+  // 순서: AI 대체 명령 > 본인 줄의 첫 항목(답 또는 시간 초과) > 본인 소식이 없어 다른 사람이 알린 시간 초과
   peek(k, seat) {
     if (this.store.aiFloor(seat) <= k) return { x: true };
     const a = this.store.answerFor(seat, k);
-    return a === undefined ? null : { a };
+    if (a !== undefined) return { a };
+    const t = this.store.timeoutFor ? this.store.timeoutFor(seat, k) : undefined;
+    return t ? { t } : null;
   }
   waitFor(k, seat) {
     return new Promise((res, rej) => {
@@ -133,7 +140,9 @@ export class Bridge {
     if (!this.running) return;
     for (let k = 0; k < this.resolved.length; k++) {
       const r = this.resolved[k];
-      if (r && r.how === 'a' && this.store.aiFloor(r.seat) <= k) { this.rebuild(); return; }
+      if (!r) continue;
+      if (this.store.aiFloor(r.seat) <= k && r.how !== 'x') { this.rebuild(); return; }                          // AI 대체 명령이 늦게 도착
+      if (r.how === 'tp' && this.store.answerFor(r.seat, k) !== undefined) { this.rebuild(); return; }            // 대신 알린 시간 초과보다 본인 답이 먼저였음
     }
     this.pump();
     this.onEvent('change', null);
@@ -146,12 +155,13 @@ export class Bridge {
 
   /* ----- 사람 입력 한 번 ----- */
   // collect(): 화면에서 값을 받는 함수(Promise)   enc/dec: 값 ↔ 기록 값   aiRun(): 이 좌석이 AI 로 바뀌었을 때 엔진이 쓸 경로
-  async prompt(p, collect, enc, dec, aiRun) {
+  // kind: 'act'(차례 행동: 차례 전체에 제한 시간 하나) / 'draft'(증강 선택) / 'other'    timeoutRun(): 시간 초과일 때 엔진이 쓸 경로(기본은 aiRun)
+  async prompt(p, collect, enc, dec, aiRun, kind = 'other', timeoutRun = aiRun) {
     if (p.ai) return aiRun();
     const gen = GEN, seat = p.id, k = this.k++;
     const alive = () => { if (gen !== GEN) throw ABORT; };
-    this.pending = { k, seat };
-    let res = this.peek(k, seat);
+    this.pendings.set(k, { k, seat, kind });
+    let res = this.peek(k, seat), snap = null;
     if (res) {
       if (!this.replaying) setSkip(true); // 뒤처진 상태: 다음에 기다릴 때까지 연출을 건너뛰며 따라잡는다
     } else {
@@ -161,24 +171,57 @@ export class Bridge {
         const waiter = this.waitFor(k, seat);
         waiter.catch(() => {});
         this.collectCount++;
+        // 자동 조종(테스트)의 AI 계산은 G.T 의 기록(aiTried)을 건드린다 → 그 답이 버려지면(시간 초과·AI 대체) 되돌려 놓는다
+        if (this.auto && kind === 'act' && G.T) snap = { tried: new Set(G.T.aiTried), steps: G.T.aiSteps };
+        const lim = this.limitFor(kind), t0 = Date.now();
+        let handle = null;
+        const racers = [waiter];
+        if (lim > 0) {
+          if (this.ui.setTimer) this.ui.setTimer(t0 + lim);
+          racers.push(new Promise(r => { handle = setTimeout(() => r({ timeout: true }), lim); }));
+        }
         const gate = this.gate ? this.gate(k, seat) : undefined;   // 시험용: 특정 입력에서 잠시 멈춰 세우는 손잡이
-        const local = Promise.resolve(gate).then(() => collect()).then(v => ({ local: v }));
-        const first = await Promise.race([waiter, local]);
+        racers.push(Promise.resolve(gate).then(() => collect()).then(v => ({ local: v })));
+        const first = await Promise.race(racers);
+        clearTimeout(handle);
+        if (lim > 0 && this.ui.setTimer) this.ui.setTimer(null);
+        if (kind === 'act') this.turnLeft = Math.max(0, this.turnLeft - (Date.now() - t0));
         alive();
         if ('local' in first) {
           this.store.propose(T_ANSWER, k, enc(first.local), seat);
           res = await this.waitFor(k, seat);
+        } else if (first.timeout) {
+          this.ui.closeAll();
+          this.store.propose(T_TIMEOUT, k, 0, seat);
+          res = await this.waitFor(k, seat);
         } else { this.ui.closeAll(); res = first; }
       } else {
-        this.ui.remote = p; this.ui.refresh();
-        try { res = await this.waitFor(k, seat); } finally { this.ui.remote = null; }
+        this.remotes.add(p); this.ui.remotes = [...this.remotes]; this.ui.refresh();
+        try { res = await this.waitFor(k, seat); }
+        finally { this.remotes.delete(p); this.ui.remotes = [...this.remotes]; }
       }
       alive();
     }
-    this.pending = null;
-    this.resolved[k] = { seat, how: res.x ? 'x' : 'a' };
+    this.pendings.delete(k);
+    if (snap && (res.x || res.t) && G.T) { G.T.aiTried = snap.tried; G.T.aiSteps = snap.steps; }
+    this.resolved[k] = { seat, how: res.x ? 'x' : res.t ? (res.t === 'self' ? 'ts' : 'tp') : 'a' };
     if (res.x) { p.ai = true; say(`${p.name}: AI가 대신 둡니다`, p.color); return aiRun(); }
+    if (res.t) {
+      say(`⏱ ${p.name}: 시간 초과 — ${kind === 'act' ? '이번 차례는' : '이번 선택은'} AI가 대신 합니다`, p.color);
+      if (kind === 'act' && G.T) G.T.auto = true;    // 이번 차례의 남은 행동은 AI 가 이어서 한다(다음 차례는 다시 사람)
+      return timeoutRun();
+    }
     return dec(res.a);
+  }
+  // 남은 제한 시간(ms), 0 이면 제한 없음
+  limitFor(kind) {
+    const sec = (this.info && this.info.cf && this.info.cf.tl) || 0;
+    if (!sec) return 0;
+    if (kind === 'act') {
+      if (this.turnRef !== G.T) { this.turnRef = G.T; this.turnLeft = sec * 1000; }
+      return Math.max(1, this.turnLeft);
+    }
+    return (kind === 'draft' ? Math.max(sec, 45) : sec) * 1000;
   }
 
   get ov() { return this._ov || (this._ov = this.makeOverrides()); }
@@ -186,9 +229,10 @@ export class Bridge {
     const me = this, ui = this.ui;
     // 자동 조종(테스트)이 공용 난수열을 쓰면 이 기기만 난수가 앞서가 버린다 → 답을 만드는 동안만 따로 난수를 쓴다
     const priv = async fn => {
-      if (!me.privRng) me.privRng = seededRng('private' + Math.random());
-      const keep = getRng(); setRng(me.privRng);
-      try { return await fn(); } finally { setRng(keep); }
+      if (!me.privRng) me.privRng = seededRng('private' + ((me.info && me.info.sd) || ''));
+      if (me.privDepth++ === 0) me.privKeep = getRng();
+      setRng(me.privRng);
+      try { return await fn(); } finally { if (--me.privDepth === 0) setRng(me.privKeep); }
     };
     const first = (arr, f = x => x) => arr.find(x => !x.disabled) ?? arr[0];
     return {
@@ -232,11 +276,20 @@ export class Bridge {
         return me.prompt(p, collect,
           v => opts.indexOf(v),
           i => (goodInt(i) && i >= 0 && i < opts.length ? opts[i] : opts[0]),
-          () => ui.draftPick(p, opts, forced, info));
+          () => ui.draftPick(p, opts, forced, info), 'draft', () => AI.pickAug(p, opts, forced));
+      },
+      // 동시 선택: 시간 초과·AI 대체면 여기서 고르지 않고 AUTO_PICK 을 돌려줘, 엔진이 좌석 순서대로 정하게 한다
+      async draftPickSim(p, opts, forced, info) {
+        const collect = () => (me.auto ? priv(async () => AI.pickAug(p, opts, forced)) : ui.draftPick(p, opts, forced, info));
+        return me.prompt(p, collect,
+          v => opts.indexOf(v),
+          i => (goodInt(i) && i >= 0 && i < opts.length ? opts[i] : opts[0]),
+          () => AUTO_PICK, 'draft');
       },
       async waitAction(p) {
+        if (G.T && G.T.auto && G.T.pid === p.id) return AI.act(p);   // 제한 시간이 지난 차례: 남은 행동은 AI 가 계속
         const collect = () => (me.auto ? priv(() => AI.act(p)) : ui.waitAction(p));
-        return me.prompt(p, collect, encAct, decAct, () => AI.act(p));
+        return me.prompt(p, collect, encAct, decAct, () => AI.act(p), 'act');
       },
       async alkShot(p, discs) {
         const collect = () => (me.auto ? priv(async () => ALK.shotAI(p, discs)) : ui.alkShot(p, discs));
