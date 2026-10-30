@@ -24,8 +24,8 @@ const goodInt = v => Number.isInteger(v);
 
 export class Bridge {
   // store: 입력 기록 저장소(Room 또는 테스트용 가짜)  ui/r/sfx/animateMove: 화면 어댑터
-  constructor({ store, ui, r, sfx, animateMove, auto = false, alwaysInstant = false, onEvent = () => {} }) {
-    Object.assign(this, { store, ui, r, sfx, animateMoveFn: animateMove, auto, alwaysInstant, onEvent });
+  constructor({ store, ui, r, sfx, animateMove, auto = false, alwaysInstant = false, gate = null, onEvent = () => {} }) {
+    Object.assign(this, { store, ui, r, sfx, animateMoveFn: animateMove, auto, alwaysInstant, gate, onEvent });
     this.k = 0; this.resolved = []; this.waiters = []; this.replaying = false; this.info = null; this.pending = null;
     this.privRng = null; this.running = false; this.rebuilds = 0; this.collectCount = 0;
     this.unsub = null;
@@ -39,6 +39,7 @@ export class Bridge {
     this.k = 0; this.resolved = []; this.pending = null;
     if (this.unsub) this.unsub();
     this.unsub = this.store.subscribe(() => this.onStoreChange());
+    if (!this.cfgBackup) this.cfgBackup = { ...CFG, slots: CFG.slots.slice() };   // 끝나면 원래 설정으로 돌려놓는다
     const n = info.cf.n, humans = info.ro.length;
     Object.assign(CFG, {
       n, slots: Array.from({ length: n }, (_, i) => (i < humans ? 'human' : 'ai')), chaos: !!info.cf.ch, endOnFirst: !!info.cf.ef,
@@ -66,6 +67,7 @@ export class Bridge {
     this.uninstall();
     setRng(null); setInstant(this.alwaysInstant); setSkip(false);
     NET.online = false; NET.localSeat = -1; NET.onCheckpoint = null;
+    if (this.cfgBackup) { Object.assign(CFG, this.cfgBackup); delete CFG.names; this.cfgBackup = null; }
   }
   leaveReplay() {
     if (!this.replaying) return;
@@ -154,12 +156,13 @@ export class Bridge {
       if (!this.replaying) setSkip(true); // 뒤처진 상태: 다음에 기다릴 때까지 연출을 건너뛰며 따라잡는다
     } else {
       this.leaveReplay();
-      setSkip(false);
+      setSkip(this.auto);   // 자동 조종(테스트)은 연출을 건너뛰며 달린다
       if (this.store.isLocal(seat)) {
         const waiter = this.waitFor(k, seat);
         waiter.catch(() => {});
         this.collectCount++;
-        const local = Promise.resolve(collect()).then(v => ({ local: v }));
+        const gate = this.gate ? this.gate(k, seat) : undefined;   // 시험용: 특정 입력에서 잠시 멈춰 세우는 손잡이
+        const local = Promise.resolve(gate).then(() => collect()).then(v => ({ local: v }));
         const first = await Promise.race([waiter, local]);
         alive();
         if ('local' in first) {

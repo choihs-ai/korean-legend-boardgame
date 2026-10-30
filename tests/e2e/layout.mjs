@@ -89,6 +89,20 @@ for (const [vpName, vp] of Object.entries(VIEWPORTS)) {
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${OUT}/${vpName}-results.png` });
   screens.results = await page.evaluate(AUDIT);
+  // 온라인 화면 (같은 브라우저 탭 시험 모드로 방을 만든다)
+  await page.goto(PAGE_URL.replace(/#.*$/, '') + '#local');
+  await page.reload();
+  await page.waitForTimeout(400);
+  await page.click('#onlineBtn');
+  await page.waitForSelector('#onNick');
+  await page.screenshot({ path: `${OUT}/${vpName}-online-form.png` });
+  screens['online-form'] = await page.evaluate(AUDIT);
+  await page.click('[data-act="create"]');
+  await page.waitForSelector('.code-big');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${OUT}/${vpName}-online-lobby.png` });
+  screens['online-lobby'] = await page.evaluate(AUDIT);
+  await page.evaluate(() => OnlineUI.session.leave());
   for (const [k, v] of Object.entries(screens)) problems += v.small.length + v.tiny.length + v.hscroll.length;
   report[vpName] = { errors, screens };
   await page.close();

@@ -92,6 +92,7 @@ export class RoomCore {
     this.phase = 'idle';           // idle | join | lobby | start | play | closed
     this.isHost = false; this.code = ''; this.cfg = null; this.ro = []; this.ep = 0; this.hostPh = 'L';
     this.peers = new Map();        // sid → { st, seenAt, gone }
+    this.bind = new Map();         // sid → 전송 계층의 연결 id
     this.streams = [[], [], [], []]; this.ansMap = [new Map(), new Map(), new Map(), new Map()]; this.floorMap = new Map();
     this.game = null;              // { sd, cf, ro, ep, nk }
     this.myIdx = -1; this.subs = new Set();
@@ -142,6 +143,10 @@ export class RoomCore {
     for (const it of list) {
       const st = cleanState(it && it.state);
       if (!st || st.s === this.sid) continue;
+      // 같은 sid 를 두 곳에서 쓰면 먼저 자리 잡은 쪽만 인정한다(남의 sid 를 흉내 내는 것을 막고, 다시 들어온 쪽은 이전 연결이 사라지면 이어받는다)
+      const bound = this.bind.get(st.s);
+      if (bound && bound !== it.id && list.some(x => x.id === bound)) continue;
+      this.bind.set(st.s, it.id);
       seen.add(st.s);
       const p = this.peers.get(st.s);
       if (!p) this.peers.set(st.s, { st, seenAt: now, gone: false });
