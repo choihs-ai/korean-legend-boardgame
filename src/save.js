@@ -1,4 +1,4 @@
-import { CFG, G, PIECE_ID, setG, setPieceId } from './state.js';
+import { CFG, G, NET, PIECE_ID, setG, setPieceId } from './state.js';
 
 /* =====================================================================
    저장: 중간 저장/이어하기 · 전적 · 증강 수집 (localStorage)
@@ -22,9 +22,20 @@ export function parseSave(str) {
 }
 export function readSave() { try { const s = localStorage.getItem(SAVE_KEY); return s ? parseSave(s) : null; } catch (e) { return null; } }
 export function writeSave(str) { if (!str) return; try { localStorage.setItem(SAVE_KEY, str); } catch (e) { /* 저장 공간이 없어도 게임은 계속 */ } }
-export function clearSave() { lastSnap = null; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 무시 */ } }
+export function clearSave() { if (NET.online) return; lastSnap = null; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 무시 */ } }
+// 온라인 대전의 상태 비교용 해시: 기기마다 다른 설정(소리·속도)은 빼고 판의 상태만 본다
+export function hashState() {
+  const g = { ...G, T: null, draft: null, alk: null, anim: null, fx: [], mask: null };
+  const s = JSON.stringify({ p: PIECE_ID, G: g }, (k, v) => (v instanceof Set ? { __set: [...v] } : v));
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+}
 export function checkpoint() {
   if (!G || G.over) return;
+  if (NET.online) { if (NET.onCheckpoint) NET.onCheckpoint(); return; } // 온라인 판은 이어하기 저장 대신 입력 기록으로 복원한다
   try { lastSnap = serializeGame(); } catch (e) { lastSnap = null; return; }
   writeSave(lastSnap);
 }
@@ -59,9 +70,10 @@ export function markGot(id) {
 export function recordGameEnd(winners) {
   const r = loadRecords();
   r.games++;
-  if (G.players.some(p => !p.ai)) {
+  const mine = NET.online ? G.players.filter(p => p.id === NET.localSeat) : G.players.filter(p => !p.ai);
+  if (mine.length) {
     r.humanGames++;
-    if (winners.some(p => !p.ai)) r.humanWins++;
+    if (winners.some(p => mine.includes(p))) r.humanWins++;
   }
   saveRecords(r);
 }

@@ -4,11 +4,21 @@ import { GEN, INSTANT, SKIP } from './state.js';
    1. 유틸
    ===================================================================== */
 export const $ = (s, r = document) => r.querySelector(s);
-export const rnd = n => Math.floor(Math.random() * n);
+// 규칙·AI 쪽 난수는 모두 rand() 를 거친다. 온라인 대전에서는 모든 기기가 같은 시드 난수열을 쓰도록 setRng 로 바꿔 끼운다.
+// (화면 연출용 난수는 Math.random 그대로 쓴다)
+let _rng = null;
+export const setRng = f => { _rng = f || null; };
+export const getRng = () => _rng;
+export const rand = () => (_rng ? _rng() : Math.random());
+export const rnd = n => Math.floor(rand() * n);
 export const pick = a => a[rnd(a.length)];
 export const shuffle = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = rnd(i + 1); [b[i], b[j]] = [b[j], b[i]]; } return b; };
 export const ABORT = new Error('게임 중단');
-export const defer = typeof setImmediate === 'function' ? f => setImmediate(f) : f => setTimeout(f, 0);
+// INSTANT(테스트·재생) 대기: Node 는 setImmediate, 브라우저는 마이크로태스크로 잇다가 가끔 한 번씩 화면에 숨 쉴 틈을 준다
+let _spins = 0;
+export const defer = typeof setImmediate === 'function' ? f => setImmediate(f) : f => {
+  if (++_spins % 300) Promise.resolve().then(f); else setTimeout(f, 0);
+};
 // 기다리기. 새 게임이 시작되면(GEN 변경) 이전 흐름은 ABORT 로 끊는다. Node 테스트(INSTANT)에서는 바로 넘어간다.
 export const sleep = ms => {
   const g = GEN;

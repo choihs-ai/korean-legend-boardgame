@@ -1,5 +1,5 @@
 import { CFG, G } from './state.js';
-import { DONE, DRAFT_ROUNDS, HOME, pick, sleep } from './util.js';
+import { DONE, DRAFT_ROUNDS, HOME, pick, rand, sleep } from './util.js';
 import { LINES, nextNode, NODES, ROT } from './board.js';
 import { AUG_BY, AUGS } from './augs.js';
 import { availableActions, backNodes, badukOptions, boardPieces, cannonMoves, cannonPiece, canon, computePath, dokPiece, foldAlias, has, hasCat, isExit, live, modValue, movableLeads, myStacks, needPieces, onBoard, others, P, piecesAt, progress, stackBound, stackOf, stepsToFinish, visibleSet } from './rules.js';
@@ -27,7 +27,7 @@ export const AI = {
     const anyCat = G.players.some(q => hasCat(q));
     const catLovers = G.players.filter(q => !q.out && has(q, 'catlove'));
     for (const id of opts) {
-      let s = (this.W[id] ?? 4) + Math.random() * (this.level() === 'hard' ? 3 : 6);
+      let s = (this.W[id] ?? 4) + rand() * (this.level() === 'hard' ? 3 : 6);
       if (id === 'catlove') s = anyCat ? 100 : s;
       if (id === 'cat') s = has(p, 'catlove') ? 100 : (catLovers.some(q => q.id !== p.id) ? -10 : s);
       if (id === 'chosen' && catLovers.some(q => q.id !== p.id)) s = -5;
@@ -112,13 +112,13 @@ export const AI = {
     const dNew = this.danger(p, dest, stack);
     s += (dNow - dNew) * value;
     if (stack.some(x => x.shield > 0)) s += dNew * value * 0.7;
-    return s + Math.random() * this.noise();
+    return s + rand() * this.noise();
   },
   bestMove(p) {
     const T = G.T;
     let best = null;
     const tried = new Set();
-    if (this.level() === 'easy' && Math.random() < 0.35) {
+    if (this.level() === 'easy' && rand() < 0.35) {
       // 쉬움: 가끔은 아무 말이나 움직인다
       const opts = [];
       T.chips.forEach((v, ci) => movableLeads(p, v).forEach(piece => opts.push({ s: 0, chip: ci, piece })));
@@ -158,11 +158,11 @@ export const AI = {
       // 쉬움: 변환·코인처럼 단순한 것만 바로 쓰고, 나머지는 가끔 아무 때나 쓴다
       if (['dokkaebi', 'cannon', 'pawn', 'marathon', 'necro'].includes(key)) return true;
       if (key === 'doberman') return G.T.throwsLeft > 0;
-      if (['lastdance', 'grail', 'domain', 'triple', 'truck', 'alkkagi'].includes(key)) return Math.random() < 0.05;
-      return Math.random() < 0.12;
+      if (['lastdance', 'grail', 'domain', 'triple', 'truck', 'alkkagi'].includes(key)) return rand() < 0.05;
+      return rand() < 0.12;
     }
     const smart = this.wantSmart(p, key);
-    return lv === 'normal' ? smart && Math.random() < 0.8 : smart;
+    return lv === 'normal' ? smart && rand() < 0.8 : smart;
   },
   wantSmart(p, key) {
     const T = G.T, idle = T.throwsLeft <= 0 && !T.chips.length;
@@ -173,7 +173,7 @@ export const AI = {
         const big = Math.max(...myStacks(p).filter(s => s.length >= 3).map(s => s.length));
         return foes.length >= 2 && p.pieces.filter(onBoard).length - big <= 1;
       }
-      case 'alkkagi': return foes.length >= 2 && Math.random() < 0.5;
+      case 'alkkagi': return foes.length >= 2 && rand() < 0.5;
       case 'doberman': return T.throwsLeft > 0;
       case 'spin': return this.rotateGain(p) >= 5;
       case 'sniper': return this.sniperNode(p) != null && T.throwsLeft >= 2;
@@ -183,13 +183,13 @@ export const AI = {
       case 'cannonJump': return idle && this.cannonBest(p).s > 3;
       case 'hand': return T.throwsLeft > 0 && !T.chips.length && this.handBest(p).s >= 45;
       case 'timetravel': return this.timeTravel(p).capture;
-      case 'fog': return G.round >= 3 && Math.random() < 0.25;
+      case 'fog': return G.round >= 3 && rand() < 0.25;
       case 'throwhit': { const l = this.leader(p, others(p)); return !!l && (progress(l) > progress(p) + 40 || G.round >= 10); }
       case 'shield': return idle && myStacks(p).some(s => this.danger(p, s[0].pos, s) >= (s.length >= 2 ? 0.2 : 0.35));
       case 'sacrifice': return idle && p.pieces.filter(onBoard).length >= 3 && myStacks(p).filter(s => this.danger(p, s[0].pos, s) >= 0.3).length >= 2;
-      case 'grail': return !T.poisoned && T.fresh && (this.remain(p) <= 10 || Math.random() < 0.08);
+      case 'grail': return !T.poisoned && T.fresh && (this.remain(p) <= 10 || rand() < 0.08);
       case 'lastdance': return T.fresh && this.remain(p) <= 5;
-      case 'domain': return myStacks(p).some(s => !stackBound(s) && this.danger(p, s[0].pos, s) < 0.05) && Math.random() < 0.4;
+      case 'domain': return myStacks(p).some(s => !stackBound(s) && this.danger(p, s[0].pos, s) < 0.05) && rand() < 0.4;
     }
     return false;
   },
@@ -233,7 +233,7 @@ export const AI = {
       const mine = this.boardSteps(p) + needPieces(p).filter(x => x.pos === HOME).length * stepsToFinish(HOME, [], p.reverse);
       const os = others(p);
       const theirs = os.length ? os.reduce((s, q) => s + this.boardSteps(q) + needPieces(q).filter(x => x.pos === HOME).length * stepsToFinish(HOME, [], q.reverse), 0) / os.length : 0;
-      const sc = theirs - mine + Math.random();
+      const sc = theirs - mine + rand();
       if (sc > bs) { bs = sc; best = dir; }
       G.alias = saved;
     }
@@ -313,7 +313,7 @@ export const AI = {
   delivery(p) {
     const next = G.round < DRAFT_ROUNDS[1] ? 'mid' : G.round < DRAFT_ROUNDS[2] ? 'end' : 'general';
     const pool = AUGS.filter(a => (a.cat === next || a.cat === 'general') && !p.augs.some(x => x.id === a.id) && a.id !== 'delivery');
-    return pool.sort((a, b) => (this.W[b.id] ?? 4) - (this.W[a.id] ?? 4) + (Math.random() - 0.5))[0].id;
+    return pool.sort((a, b) => (this.W[b.id] ?? 4) - (this.W[a.id] ?? 4) + (rand() - 0.5))[0].id;
   },
   illusion(p, targets) {
     // 고양이로 착각된 증강이 생기는 순간 '고양이 좋아' 보유자가 이긴다

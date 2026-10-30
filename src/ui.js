@@ -419,6 +419,8 @@ export const UI = {
       setTimeout(() => { b.onclick = () => { b.hidden = true; b.onclick = null; SFX.init(); SFX.play('click'); if (g === GEN) res(); }; }, 280);
     });
   },
+  // 알까기: 내 알을 당겼다 놓는 입력을 기다린다 (pointer 처리는 ALK.down/move/up)
+  alkShot() { return new Promise(res => { G.alk.onShot = res; }); },
   async alert(title, html, p) {
     if (!G || G.players.every(q => q.ai) || (p && p.ai)) { await sleep(AI.delay(900)); return; }
     await this.modal({ title, html, options: [{ label: '확인', value: true, cls: 'primary' }] });
