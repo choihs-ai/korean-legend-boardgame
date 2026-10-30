@@ -1,5 +1,5 @@
 import { bumpGen, CFG, G, io, NET, nextPieceId, setG, setPieceId, setSkip } from './state.js';
-import { ABORT, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, rand, resName, shuffle, sleep, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
+import { ABORT, AUTO_PICK, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, rand, resName, shuffle, sleep, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
 import { ADJ, defaultPrev, DIAG, LINES, nextNode, nodeAt, NODES, ROT, XY } from './board.js';
 import { AUG_BY, AUGS, CAT_NAME, KIND_NAME } from './augs.js';
 import { checkpoint, clearSave, markGot, markSeen, readSave, recordGameEnd, restoreSnap, serializeGame } from './save.js';
@@ -1384,6 +1384,7 @@ export async function draftRound() {
   say(`🃏 ${G.round}라운드 증강 선택 (${CAT_NAME[cat]} 전용 + 범용)${G.chaos ? ' · 혼돈 모드: 2번씩' : ''}`);
   await sleep(1000);
   const times = G.chaos ? 2 : 1;
+  if (NET.online && NET.simDraft) { await draftSimultaneous(cat, times); G.draft = null; render(); return; }
   for (const p of G.players) {
     for (let k = 0; k < times; k++) {
       if (p.out || G.over) break;
@@ -1408,6 +1409,51 @@ export async function draftRound() {
   }
   G.draft = null;
   render();
+}
+
+// 온라인: 사람들이 동시에 고른다. 후보는 좌석 순서대로 뽑고(공용 난수), 사람 선택은 한꺼번에 기다린 뒤,
+// 적용(획득·무효화·다시 뽑기)은 기존처럼 좌석 순서대로 한다. AI·시간 초과·AI 대체 자리는 이 적용 단계에서 차례로 고른다
+// (동시에 기다리는 동안 공용 난수를 쓰면 기기마다 쓰는 순서가 달라지기 때문).
+async function draftSimultaneous(cat, times) {
+  for (let k = 0; k < times; k++) {
+    const slots = [];
+    for (const p of G.players) {
+      if (p.out || G.over) continue;
+      const excl = new Set();
+      const opts = drawOptions(p, cat, excl);
+      if (!opts.length) continue;
+      const forced = (G.chosenRule || has(p, 'catpick')) && opts.includes('cat');
+      if (!p.ai && p.id === NET.localSeat) markSeen(opts);
+      slots.push({ p, opts, excl, forced, pick: undefined });
+    }
+    const humans = slots.filter(sl => !sl.p.ai);
+    const got = await Promise.all(humans.map(sl => io.ui.draftPickSim(sl.p, sl.opts, sl.forced, { k, times, cat })));
+    humans.forEach((sl, i) => { sl.pick = got[i]; });
+    for (const sl of slots) {
+      const { p } = sl;
+      let { opts, forced } = sl, id = sl.pick;
+      for (let guard = 0; guard < 6; guard++) {
+        if (p.out || G.over) break;
+        if (id === undefined) id = await io.ui.draftPick(p, opts, forced, { k, times, cat });          // 다시 뽑은 뒤의 선택 (사람이면 이때는 차례로 묻는다)
+        else if (id === AUTO_PICK) id = p.ai ? await io.ui.draftPick(p, opts, forced, { k, times, cat }) : AI.pickAug(p, opts, forced);
+        if (G.draft.banned.has(id)) {
+          p.augs.push({ id, used: true, disabled: true, catUntil: 0 });
+          say(`🔍 명탐정: ${p.name}의 「${AUG_BY[id].name}」 선택이 무효화되었습니다`, true);
+          break;
+        }
+        await acquire(p, id);
+        if (G.draft && G.draft.reroll) {
+          G.draft.reroll = false; opts.forEach(o => sl.excl.add(o));
+          opts = drawOptions(p, cat, sl.excl);
+          if (!opts.length) break;
+          forced = (G.chosenRule || has(p, 'catpick')) && opts.includes('cat');
+          id = undefined; continue;
+        }
+        break;
+      }
+      if (G.over) return;
+    }
+  }
 }
 
 /* =====================================================================

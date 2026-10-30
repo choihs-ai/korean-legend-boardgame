@@ -12,7 +12,8 @@ import { R } from './render.js';
    ===================================================================== */
 export const UI = {
   sel: null, wait: null, pick: null, modalRes: null, _ft: 0, confirmQuit: false,
-  remote: null,   // 온라인: 지금 입력을 기다리는 다른 사람의 좌석(플레이어)
+  remotes: [],    // 온라인: 지금 입력을 기다리는 다른 사람들(동시 선택이면 여러 명)
+  timerUntil: 0, timerHandle: null,
   net: null,      // 온라인 세션 (main.js 에서 연결)
   init() {
     $('#countSeg').addEventListener('click', e => {
@@ -124,7 +125,7 @@ export const UI = {
     this.closeModal(); this.closeInfo();
     $('#blind').hidden = true; $('#blind').onclick = null;
     this.hideBanner(); $('#sticks').hidden = true; $('#flash').hidden = true;
-    this.wait = null; this.pick = null; this.sel = null;
+    this.wait = null; this.pick = null; this.sel = null; this.setTimer(null);
     R.hl = null; R.movable = null; R.rot = null; R.fold = null;
   },
   toast(msg, color) {
@@ -173,6 +174,18 @@ export const UI = {
     $('#turnLbl').innerHTML = tl;
     $('#sndBtn').classList.toggle('off', !SFX.on);
     this.netBadge();
+  },
+  // 제한 시간 표시: until(ms 시각)까지 남은 초를 상단 배지와 열려 있는 선택창에 보여 준다. null 이면 끈다.
+  setTimer(until) {
+    clearInterval(this.timerHandle); this.timerHandle = null; this.timerUntil = until || 0;
+    const b = $('#timerBadge');
+    if (!until) { b.hidden = true; document.querySelectorAll('.mtimer').forEach(e => { e.textContent = ''; }); return; }
+    this.paintTimer(); this.timerHandle = setInterval(() => this.paintTimer(), 250);
+  },
+  paintTimer() {
+    const left = Math.max(0, Math.ceil((this.timerUntil - Date.now()) / 1000)), b = $('#timerBadge');
+    b.hidden = false; b.textContent = `${left}초`; b.classList.toggle('warn', left <= 10);
+    document.querySelectorAll('.mtimer').forEach(e => { e.textContent = `${left}초`; e.classList.toggle('warn', left <= 10); });
   },
   netBadge() {
     const b = $('#netBadge');
@@ -245,14 +258,15 @@ export const UI = {
     if (!T || !T.chips.length) this.sel = null;
     let chips = '';
     if (T && T.chips.length) chips = T.chips.map((v, i) => `<button type="button" class="chip ${v < 0 ? 'neg' : ''} ${human && this.sel === i ? 'sel' : ''}" data-ci="${i}" ${human ? '' : 'disabled'}>${resName(v)}${modValue(p, v) !== v ? `<small> ${modValue(p, v)}칸</small>` : ''}</button>`).join('');
-    else if (G.draft && !(this.remote && !this.remote.ai)) chips = '<span class="hint">증강을 고르는 중…</span>';
+    else if (G.draft && !this.remotes.length) chips = '<span class="hint">증강을 고르는 중…</span>';
     else if (p && p.ai) chips = `<span class="hint">${G.mask ? '???' : p.name} (AI) 두는 중${SKIP ? ' · 건너뛰는 중' : ' · 판을 탭하면 건너뛰기'}</span>`;
     else if (human && T.throwsLeft > 0) chips = '<span class="hint">윷을 던지세요</span>';
     else if (human) chips = '<span class="hint">증강을 쓰거나 턴을 마치세요</span>';
-    if (this.remote && !this.remote.ai) {      // 온라인: 다른 사람의 입력을 기다리는 중
-      const q = this.remote, live = !this.net || this.net.isLive(q.id);
-      chips += `<span class="hint">${esc(q.name)}님이 ${G.draft ? '증강을 고르는' : '두는'} 중…${live ? '' : ' (연결이 끊긴 것 같아요)'}</span>` +
-        (live ? '' : `<button type="button" class="mbtn" data-take="${q.id}">AI에게 맡기기</button>`);
+    const waiting = this.remotes.filter(q => !q.ai);
+    if (waiting.length) {                      // 온라인: 다른 사람의 입력을 기다리는 중
+      const names = waiting.map(q => esc(q.name)).join('·'), lost = waiting.filter(q => this.net && !this.net.isLive(q.id));
+      chips += `<span class="hint">${names}님이 ${G.draft ? '증강을 고르는' : '두는'} 중…${lost.length ? ' (연결이 끊긴 것 같아요)' : ''}</span>` +
+        lost.map(q => `<button type="button" class="mbtn" data-take="${q.id}">${waiting.length > 1 ? esc(q.name) + ' ' : ''}AI에게 맡기기</button>`).join('');
     }
     $('#chips').innerHTML = chips;
     const tb = $('#throwBtn');
@@ -350,14 +364,15 @@ export const UI = {
       m.classList.toggle('sheet', !!o.sheet);
       m.classList.remove('lowered');
       let h = o.sheet
-        ? `<div class="sheet-head"><h2 class="mtitle">${esc(o.title)}</h2><button type="button" class="mbtn ghost peekbtn" data-peek="1" aria-expanded="true">판 보기</button></div>`
-        : `<h2 class="mtitle">${esc(o.title)}</h2>`;
+        ? `<div class="sheet-head"><h2 class="mtitle">${esc(o.title)}</h2>${this.timerUntil ? '<span class="mtimer" aria-hidden="true"></span>' : ''}<button type="button" class="mbtn ghost peekbtn" data-peek="1" aria-expanded="true">판 보기</button></div>`
+        : `<h2 class="mtitle">${esc(o.title)}${this.timerUntil ? ' <span class="mtimer" aria-hidden="true"></span>' : ''}</h2>`;
       if (o.desc) h += `<p class="mdesc">${o.desc}</p>`;
       if (o.cards) h += `<div class="augcards">${o.cards.map((id, i) => this.augCard(id, i, o.locked && o.locked(id))).join('')}</div>`;
       if (o.html) h += o.html;
       if (o.options) h += `<div class="mopts ${o.grid ? 'grid' : ''}">${o.options.map((op, i) => `<button type="button" class="mbtn ${op.cls || ''}" data-i="${i}" ${op.disabled ? 'disabled' : ''}><span>${op.color ? `<i class="cdot" style="background:${op.color}"></i>` : ''}${esc(op.label)}</span>${op.sub ? `<small>${esc(op.sub)}</small>` : ''}</button>`).join('')}</div>`;
       if (o.cancel) h += `<div class="mopts"><button type="button" class="mbtn ghost" data-cancel="1">취소</button></div>`;
       box.innerHTML = h;
+      if (this.timerUntil) this.paintTimer();
       m.hidden = false;
       box.scrollTop = 0;
       this.modalRes = res;
@@ -527,7 +542,7 @@ export const UI = {
       <h3>특수 승리 밸런스</h3><ul><li>증강의 특수 승리 조건은 ${WIN_FROM_ROUND}라운드 전에는 발동하지 않습니다. 조건을 먼저 채우면 기록해 두었다가 ${WIN_FROM_ROUND}라운드가 시작될 때 발동합니다.</li><li>김첨지는 ${KIM_TURNS}차례 안에, 내 다른 말보다 먼저(또는 함께) 완주해야 승리합니다.</li></ul>
       <h3>이어하기</h3><p>매 차례가 끝날 때 판이 이 기기에 저장됩니다. 앱을 닫았다가 타이틀의 ‘이어하기’를 누르면 그 차례의 처음부터 이어집니다.</p>
       <h3>순위</h3><ul><li>완주·특수 승리는 남은 가장 높은 순위, 탈락은 남은 가장 낮은 순위를 받습니다.</li><li>‘1위가 나오면 바로 종료’를 끄면 마지막 한 명이 남을 때까지 겨룹니다. 그 전에 끝나면 남은 사람은 진행도로 순위를 매깁니다.</li></ul>
-      <h3>온라인 대전</h3><ul><li>타이틀의 ‘온라인 대전’에서 방을 만들고, 친구는 4자리 방 코드(또는 초대 링크)로 들어옵니다. 사람 2~4명, 빈 자리는 AI.</li><li>모든 기기가 같은 시드로 같은 판을 돌립니다. 시드는 참가자 모두가 함께 정해 방장도 고를 수 없고, 윷 결과도 모두 같은 수열에서 나옵니다.</li><li>연결이 끊긴 사람은 돌아오면 이어서 합니다. 오래 안 오면 다른 사람이 ‘AI에게 맡기기’를 눌러 그 자리를 AI가 이어 둘 수 있습니다.</li><li>온라인에서는 기기마다 화면이 따로라 비밀 선택에 가림막이 없습니다.</li></ul>
+      <h3>온라인 대전</h3><ul><li>타이틀의 ‘온라인 대전’에서 방을 만들고, 친구는 4자리 방 코드(또는 초대 링크)로 들어옵니다. 사람 2~4명, 빈 자리는 AI.</li><li>모든 기기가 같은 시드로 같은 판을 돌립니다. 시드는 참가자 모두가 함께 정해 방장도 고를 수 없고, 윷 결과도 모두 같은 수열에서 나옵니다.</li><li>연결이 끊긴 사람은 돌아오면 이어서 합니다. 오래 안 오면 다른 사람이 ‘AI에게 맡기기’를 눌러 그 자리를 AI가 이어 둘 수 있습니다.</li><li>증강 선택은 모두가 동시에 고릅니다. 다 고르면 진행하고, 고른 순서와 상관없이 적용은 좌석 순서대로 합니다.</li><li>방을 만들 때 차례 제한 시간(없음·30·60·90초)을 정할 수 있습니다. 한 차례 동안의 생각하는 시간이 이를 넘으면 그 차례의 남은 행동은 AI가 대신 두고, 증강 선택은 최소 45초를 줍니다. 기기가 멈춰 소식이 없으면 다른 사람 기기가 대신 알립니다.</li><li>온라인에서는 기기마다 화면이 따로라 비밀 선택에 가림막이 없습니다.</li></ul>
             <h3>한 기기에서</h3><p>비밀 선택(계획대로·명탐정·배달·내려 투표·나 누구게?)은 가림막이 뜹니다. 해당 플레이어만 화면을 보고 터치하세요.</p>
       <h3>판 변형</h3><ul><li>게임 접어라: 출구가 있는 절반이 남고 반대편 칸은 거울 칸과 합쳐집니다. 출구와 겹친 모서리는 출구가 됩니다.</li><li>돌려돌려 돌림판: 판이 시계방향 90° 회전하고, 출구 자리는 그대로라 각 말의 남은 거리가 바뀝니다.</li><li>알까기: 판 위 말뭉치가 알이 됩니다. 내 알을 당겼다 놓으면 반대쪽으로 튕겨 나가고, 점선 밖으로 나간 알은 죽습니다.</li></ul>
       </div><div class="mopts"><button type="button" class="mbtn" data-info="book">증강 도감 보기</button></div>`);

@@ -14,7 +14,7 @@ const noop = () => {};
 const sfx = { play: noop, init: noop };
 const make = (store, extra = {}) => new Bridge({ store, ui: headlessUI, r: headlessR, sfx, animateMove: () => Promise.resolve(), alwaysInstant: true, ...extra });
 const info = (i, humans, chaos) => ({
-  cf: { n: 4, ch: chaos ? 1 : 0, df: ['easy', 'normal', 'hard'][i % 3], ef: 0 },
+  cf: { n: 4, ch: chaos ? 1 : 0, df: ['easy', 'normal', 'hard'][i % 3], ef: 0, tl: 0 },
   ro: ['a', 'b', 'c', 'd'].slice(0, humans), nicks: ['가', '나', '다', '라'].slice(0, humans), sd: sha256('seed' + i),
 });
 async function runTo(br, inf, ms = 60000) {
@@ -26,7 +26,7 @@ async function runTo(br, inf, ms = 60000) {
 }
 const snap = () => ({ h: hashState(), log: state.G.log.slice(), round: state.G.round, over: state.G.over, ranks: state.G.players.map(p => p.rank) });
 
-let ok = 0; const fails = []; const shapes = { 던지기: 0, 이동: 0, 증강행동: 0, 알까기: 0, 선택: 0, AI대체: 0 };
+let ok = 0; const fails = []; const shapes = { 던지기: 0, 이동: 0, 증강행동: 0, 알까기: 0, 선택: 0, AI대체: 0, 시간초과: 0 };
 for (let i = 0; i < N; i++) {
   const humans = 1 + (i % 4), chaos = i % 2 === 1, inf = info(i, humans, chaos);
   errors.length = 0;
@@ -41,12 +41,23 @@ for (let i = 0; i < N; i++) {
       return null;
     };
   }
+  if (i % 3 === 1) { // 3판에 1판은 일부 입력을 시간 초과로 바꾼다(본인 기기가 알린 것 / 다른 사람이 대신 알린 것)
+    const prev = live.intercept;
+    live.intercept = (type, a, b, seat) => {
+      const r = prev ? prev(type, a, b, seat) : null;
+      if (r || type !== 0) return r;
+      if (a % 23 === 5) return [[2, a, 0, seat]];
+      if (a % 41 === 7 && humans >= 2) return [[2, a, 0, (seat + 1) % humans]];
+      return null;
+    };
+  }
   const b1 = make(live, { auto: true });
   const r1 = await runTo(b1, inf);
   if (r1 !== 'done' || errors.length) { fails.push({ i, why: 'live ' + r1, err: errors[0] }); b1.stop(); continue; }
   const s1 = snap(); b1.stop();
   for (const st of live.streams) for (const [t, a, b] of st) {
-    if (t === 1) shapes.AI대체++;
+    if (t === 2) shapes.시간초과++;
+    else if (t === 1) shapes.AI대체++;
     else if (b === 't') shapes.던지기++;
     else if (typeof b === 'string' && b[0] === 'm') shapes.이동++;
     else if (typeof b === 'string' && b[0] === 'a') shapes.증강행동++;

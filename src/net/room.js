@@ -37,16 +37,17 @@ function cleanCfg(c) {
   if (!isObj(c)) return null;
   const n = int(c.n, 2, 4), hu = int(c.hu, 1, 4);
   if (n == null || hu == null || hu > n) return null;
-  return { n, hu, ch: c.ch ? 1 : 0, df: ['easy', 'normal', 'hard'].includes(c.df) ? c.df : 'normal', ef: c.ef ? 1 : 0 };
+  return { n, hu, ch: c.ch ? 1 : 0, df: ['easy', 'normal', 'hard'].includes(c.df) ? c.df : 'normal', ef: c.ef ? 1 : 0, tl: int(c.tl, 0, 600, 0) };
 }
 const cleanSidList = (a, max) => (Array.isArray(a) && a.length <= max ? a.map(sidOk) : null);
 export function cleanEntry(e) {
   if (!Array.isArray(e) || e.length !== 3) return null;
-  const t = e[0] === 0 || e[0] === 1 ? e[0] : null;
+  const t = e[0] === 0 || e[0] === 1 || e[0] === 2 ? e[0] : null;
   const a = int(e[1], 0, 100000);
   if (t == null || a == null) return null;
   let b = e[2];
   if (t === 1) b = int(b, 0, 100000);
+  else if (t === 2) b = int(b, 0, 0);
   else if (typeof b === 'string') b = b.length <= 32 && /^[A-Za-z0-9.,:_+\-]*$/.test(b) ? b : null;
   else b = int(b, -1, 1000000);
   return b == null ? null : [t, a, b];
@@ -93,7 +94,7 @@ export class RoomCore {
     this.isHost = false; this.code = ''; this.cfg = null; this.ro = []; this.ep = 0; this.hostPh = 'L';
     this.peers = new Map();        // sid → { st, seenAt, gone }
     this.bind = new Map();         // sid → 전송 계층의 연결 id
-    this.streams = [[], [], [], []]; this.ansMap = [new Map(), new Map(), new Map(), new Map()]; this.floorMap = new Map();
+    this.streams = [[], [], [], []]; this.ansMap = [new Map(), new Map(), new Map(), new Map()]; this.floorMap = new Map(); this.tmoMap = new Map();
     this.game = null;              // { sd, cf, ro, ep, nk }
     this.myIdx = -1; this.subs = new Set();
     this.hashes = []; this.desync = new Set();
@@ -103,8 +104,9 @@ export class RoomCore {
   }
 
   /* ===== 방 열기 / 들어가기 / 나가기 ===== */
+  // 참가자가 받는 모양과 같게 정리한다(시드 해시에 들어가므로 키 순서까지 같아야 함)
   create(code, cfg) {
-    this.code = code; this.isHost = true; this.phase = 'lobby'; this.cfg = cfg; this.ro = [this.sid]; this.hostPh = 'L'; this.ep = 0;
+    this.code = code; this.isHost = true; this.phase = 'lobby'; this.cfg = cleanCfg(cfg); this.ro = [this.sid]; this.hostPh = 'L'; this.ep = 0;
     this.dirty = true; this.emitLobby();
   }
   join(code) {
@@ -115,7 +117,8 @@ export class RoomCore {
     this.code = snap.code; this.isHost = false; this.phase = 'play';
     this.game = { sd: snap.sd, cf: snap.cf, ro: snap.ro, ep: snap.ep, nk: snap.nk };
     this.ro = snap.ro.slice(); this.cfg = snap.cf; this.myIdx = this.ro.indexOf(this.sid);
-    snap.streams.forEach((s, i) => { this.streams[i] = s.map(e => e.slice()); this.rebuildIndex(i); });
+    snap.streams.forEach((s, i) => { this.streams[i] = s.map(e => e.slice()); });
+    this.rebuildAll();
     this.dirty = true; this.genAt = this.now() - 60000;
     this.announceStart();
   }
@@ -199,7 +202,12 @@ export class RoomCore {
     }
     this.hostSeenAt = now;
     this.applyHost(h.st);
-    if (h.st.ph !== 'L') { if (!h.st.ro.includes(this.sid)) this.reject('started'); return; }
+    if (h.st.ph !== 'L') {
+      if (!h.st.ro.includes(this.sid)) { this.reject('started'); return; }
+      // 대기실 화면이 뜨기 전에 방장이 이미 시작했다면(막 들어온 사람) 바로 시작 준비로 넘어간다
+      if (h.st.ph === 'S' || h.st.ph === 'R') { this.phase = 'start'; this.startedAt = now; this.emitLobby(); }
+      return;
+    }
     if (h.st.ro.includes(this.sid)) { this.phase = 'lobby'; this.rejected = null; this.emitLobby(); return; }
     if (h.st.ro.length >= h.st.cf.hu && now - this.joinedAt > 1500) this.reject('full');
     this.emitLobby();
@@ -337,16 +345,18 @@ export class RoomCore {
     }
     return out;
   }
+  // 색인: 입력 줄마다 "k 번째 입력에 처음 올린 항목"(답 또는 시간 초과), AI 대체 기준(floor), 시간 초과를 올린 줄
   indexEntry(idx, e) {
-    if (e[0] === 0 && !this.ansMap[idx].has(e[1])) this.ansMap[idx].set(e[1], e[2]);
-    else if (e[0] === 1) { const f = this.floorMap.get(e[1]); if (f === undefined || e[2] < f) this.floorMap.set(e[1], e[2]); }
+    if (e[0] === 0 || e[0] === 2) {
+      if (!this.ansMap[idx].has(e[1])) this.ansMap[idx].set(e[1], [e[0], e[2]]);
+      if (e[0] === 2) { let set = this.tmoMap.get(e[1]); if (!set) this.tmoMap.set(e[1], set = new Set()); set.add(idx); }
+    } else if (e[0] === 1) { const f = this.floorMap.get(e[1]); if (f === undefined || e[2] < f) this.floorMap.set(e[1], e[2]); }
   }
-  rebuildIndex(idx) {
-    this.ansMap[idx] = new Map();
-    this.floorMap = new Map();
-    this.streams.forEach((s, i) => { if (i !== idx) { s.forEach(e => { if (e[0] === 1) { const f = this.floorMap.get(e[1]); if (f === undefined || e[2] < f) this.floorMap.set(e[1], e[2]); } }); } });
-    for (const e of this.streams[idx]) this.indexEntry(idx, e);
+  rebuildAll() {
+    this.ansMap = [new Map(), new Map(), new Map(), new Map()]; this.floorMap = new Map(); this.tmoMap = new Map();
+    this.streams.forEach((s, i) => s.forEach(e => this.indexEntry(i, e)));
   }
+  rebuildIndex() { this.rebuildAll(); }
   notify() { for (const f of [...this.subs]) f(); }
 
   // Bridge 가 쓰는 입력 기록 저장소 모양
@@ -357,7 +367,14 @@ export class RoomCore {
       isLocal: s => s === me.myIdx,
       hasLocal: () => me.myIdx >= 0,
       hasEntries: () => me.streams.some(s => s.length),
-      answerFor: (seat, k) => me.ansMap[seat]?.get(k),
+      answerFor: (seat, k) => { const e = me.ansMap[seat]?.get(k); return e && e[0] === 0 ? e[1] : undefined; },
+      // 'self' = 본인 기기가 시간 초과를 알림 / 'peer' = 본인 소식이 없어 다른 사람이 대신 알림(본인 답이 뒤늦게 오면 그 답이 이김)
+      timeoutFor: (seat, k) => {
+        const e = me.ansMap[seat]?.get(k);
+        if (e) return e[0] === 2 ? 'self' : undefined;
+        const set = me.tmoMap.get(k);
+        return set && [...set].some(i => i !== seat) ? 'peer' : undefined;
+      },
       aiFloor: seat => me.floorMap.get(seat) ?? Infinity,
       propose: (type, a, b) => {
         if (me.myIdx < 0) return;
