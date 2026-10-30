@@ -1,5 +1,5 @@
 import { bumpGen, CFG, G, io, NET, nextPieceId, setG, setPieceId, setSkip } from './state.js';
-import { ABORT, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, rand, resName, shuffle, sleep, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
+import { ABORT, AUTO_PICK, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, rand, resName, shuffle, sleep, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
 import { ADJ, defaultPrev, DIAG, LINES, nextNode, nodeAt, NODES, ROT, XY } from './board.js';
 import { AUG_BY, AUGS, CAT_NAME, KIND_NAME } from './augs.js';
 import { checkpoint, clearSave, markGot, markSeen, readSave, recordGameEnd, restoreSnap, serializeGame } from './save.js';
@@ -139,7 +139,8 @@ export async function eliminate(p, why) {
   say(`💀 ${p.name} 탈락 — ${why}`, '#c33');
   io.ui.flash(`${p.name} 탈락`, p.color);
   if (G.duel && (G.duel.caster === p.id || G.duel.target === p.id)) G.duel = null;
-  for (const q of G.players) if (!q.out && q.host === p.id) await eliminate(q, `거머리: ${p.name}와 동반 탈락`);
+  // 마지막 남은 한 명(1위 자리)까지 동반 탈락시키면 승자가 없어지므로 그 경우는 살려 둔다
+  for (const q of G.players) if (!q.out && q.host === p.id && freeRanks().length > 1) await eliminate(q, `거머리: ${p.name}와 동반 탈락`);
   checkContention();
   render();
 }
@@ -516,7 +517,7 @@ export async function doThrow(p, forced) {
   } else sets.push(throwSticks(p));
   if (has(p, 'dual')) {
     sets.push(throwSticks(p));
-    sets.forEach(s => { if (s.v === 5) { s.v = 1; s.dualFix = true; } });
+    sets.forEach(s => { if (s.v === 4 || s.v === 5) { s.v = 1; s.dualFix = true; } else if (s.v === 3) { s.v = 2; s.dualFix = true; } });
   }
   p.st.throws++;
   io.sfx.play('throw');
@@ -525,7 +526,7 @@ export async function doThrow(p, forced) {
     if (s.v === 'OUT') { say(`🎋 ${p.name} 과유불급: 앞면 ${stickCount(p)}개!`, '#e66'); await eliminate(p, '과유불급 (앞면 전부)'); return; }
     T.chips.push(s.v);
     if (s.v >= 4) T.throwsLeft++;
-    say(`${p.name}: ${resName(s.v)}${s.dualFix ? ' (이도류: 모→도)' : ''}${s.v >= 4 ? ' — 한 번 더!' : ''}`);
+    say(`${p.name}: ${resName(s.v)}${s.dualFix ? ' (이도류: 낮춰짐)' : ''}${s.v >= 4 ? ' — 한 번 더!' : ''}`);
     await recordResult(p, s.v);
     if (p.out || G.over) return;
   }
@@ -1383,6 +1384,7 @@ export async function draftRound() {
   say(`🃏 ${G.round}라운드 증강 선택 (${CAT_NAME[cat]} 전용 + 범용)${G.chaos ? ' · 혼돈 모드: 2번씩' : ''}`);
   await sleep(1000);
   const times = G.chaos ? 2 : 1;
+  if (NET.online && NET.simDraft) { await draftSimultaneous(cat, times); G.draft = null; render(); return; }
   for (const p of G.players) {
     for (let k = 0; k < times; k++) {
       if (p.out || G.over) break;
@@ -1407,6 +1409,51 @@ export async function draftRound() {
   }
   G.draft = null;
   render();
+}
+
+// 온라인: 사람들이 동시에 고른다. 후보는 좌석 순서대로 뽑고(공용 난수), 사람 선택은 한꺼번에 기다린 뒤,
+// 적용(획득·무효화·다시 뽑기)은 기존처럼 좌석 순서대로 한다. AI·시간 초과·AI 대체 자리는 이 적용 단계에서 차례로 고른다
+// (동시에 기다리는 동안 공용 난수를 쓰면 기기마다 쓰는 순서가 달라지기 때문).
+async function draftSimultaneous(cat, times) {
+  for (let k = 0; k < times; k++) {
+    const slots = [];
+    for (const p of G.players) {
+      if (p.out || G.over) continue;
+      const excl = new Set();
+      const opts = drawOptions(p, cat, excl);
+      if (!opts.length) continue;
+      const forced = (G.chosenRule || has(p, 'catpick')) && opts.includes('cat');
+      if (!p.ai && p.id === NET.localSeat) markSeen(opts);
+      slots.push({ p, opts, excl, forced, pick: undefined });
+    }
+    const humans = slots.filter(sl => !sl.p.ai);
+    const got = await Promise.all(humans.map(sl => io.ui.draftPickSim(sl.p, sl.opts, sl.forced, { k, times, cat })));
+    humans.forEach((sl, i) => { sl.pick = got[i]; });
+    for (const sl of slots) {
+      const { p } = sl;
+      let { opts, forced } = sl, id = sl.pick;
+      for (let guard = 0; guard < 6; guard++) {
+        if (p.out || G.over) break;
+        if (id === undefined) id = await io.ui.draftPick(p, opts, forced, { k, times, cat });          // 다시 뽑은 뒤의 선택 (사람이면 이때는 차례로 묻는다)
+        else if (id === AUTO_PICK) id = p.ai ? await io.ui.draftPick(p, opts, forced, { k, times, cat }) : AI.pickAug(p, opts, forced);
+        if (G.draft.banned.has(id)) {
+          p.augs.push({ id, used: true, disabled: true, catUntil: 0 });
+          say(`🔍 명탐정: ${p.name}의 「${AUG_BY[id].name}」 선택이 무효화되었습니다`, true);
+          break;
+        }
+        await acquire(p, id);
+        if (G.draft && G.draft.reroll) {
+          G.draft.reroll = false; opts.forEach(o => sl.excl.add(o));
+          opts = drawOptions(p, cat, sl.excl);
+          if (!opts.length) break;
+          forced = (G.chosenRule || has(p, 'catpick')) && opts.includes('cat');
+          id = undefined; continue;
+        }
+        break;
+      }
+      if (G.over) return;
+    }
+  }
 }
 
 /* =====================================================================

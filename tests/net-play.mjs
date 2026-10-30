@@ -47,9 +47,9 @@ class Net {
 const until = async (f, ms = 60000) => { const t = Date.now(); while (Date.now() - t < ms) { if (f()) return true; await sleep(40); } return false; };
 const ev = (p, t) => p.events.filter(e => e.t === t);
 
-async function room(net, humans, { ai = 0, chaos = false, df = 'hard', takeoverMs = 0 } = {}) {
+async function room(net, humans, { ai = 0, chaos = false, df = 'hard', takeoverMs = 0, tl = 0 } = {}) {
   const ps = [net.add('호스트', { autoTakeoverMs: takeoverMs })];
-  ps[0].w.postMessage({ t: 'create', cfg: { n: humans + ai, hu: humans, ch: chaos ? 1 : 0, df, ef: 0 } });
+  ps[0].w.postMessage({ t: 'create', cfg: { n: humans + ai, hu: humans, ch: chaos ? 1 : 0, df, ef: 0, tl } });
   await until(() => ev(ps[0], 'created').length, 10000);
   const code = ev(ps[0], 'created')[0].code;
   for (let i = 1; i < humans; i++) { const g = net.add('손님' + i, { autoTakeoverMs: takeoverMs }); g.w.postMessage({ t: 'join', code }); ps.push(g); }
@@ -88,6 +88,26 @@ for (let i = 0; i < SEEDS; i++) {
     check(new Set(hs).size === 1, '되감기: 모두 같은 판', { hs });
     check(ps[0].events.some(e => e.t === 'rebuild'), '되감기: 방장 기기가 되감기를 했음', { ev: ps[0].events.map(e => e.t).join() });
     console.log(`  되감기: ${lastOver(ps[0]).round}라운드, 방장 기기 되감기 ${ev(ps[0], 'rebuild').length}번, 일치=${new Set(hs).size === 1}`);
+  }
+  net.stop();
+}
+
+// 2.5) 제한 시간: 한 사람이 멈춰 있으면 본인 기기가 시간 초과를 알리고 AI 가 대신 둔다 / 기기가 아예 멈추면 다른 사람이 대신 알린다
+{
+  const net = new Net({ loss: 0.05 });
+  const { ps } = await room(net, 3, { tl: 1 });
+  ps[1].w.postMessage({ t: 'gate', k: 12 });                 // 손님1 은 12번째 입력부터 멈춰 있음(영원히)
+  ps[2].w.postMessage({ t: 'frozen' });                       // 손님2 는 기기가 멈춘 것처럼 타이머도 못 돈다
+  ps[0].w.postMessage({ t: 'start' });
+  await until(() => ps.every(p => ev(p, 'start').length), 30000);
+  const live = [ps[0], ps[1], ps[2]];
+  const done = await allOver(live, 150000);
+  check(done, '제한 시간: 끝까지', { overs: live.map(p => ev(p, 'over').length), errs: ps.flatMap(p => p.events.filter(e => e.t === 'error' || e.t === 'crash')).slice(0, 2) });
+  if (done) {
+    const hs = live.map(p => lastOver(p).hash);
+    check(new Set(hs).size === 1, '제한 시간: 모두 같은 판', { hs });
+    check(/시간 초과/.test(lastOver(ps[0]).log), '제한 시간: 시간 초과 기록', {});
+    console.log(`  제한 시간: ${lastOver(ps[0]).round}라운드, 일치=${new Set(hs).size === 1}`);
   }
   net.stop();
 }

@@ -1,5 +1,5 @@
 // 온라인 대전 화면: 방 만들기 / 참가 / 대기실. 게임 화면은 기존 UI 를 그대로 쓴다.
-import { $, esc, PCOL } from '../util.js';
+import { $, APP_VERSION, esc, PCOL } from '../util.js';
 import { UI } from '../ui.js';
 import { R, animateMove } from '../render.js';
 import { SFX } from '../sound.js';
@@ -11,7 +11,7 @@ const TX_NAME = { room: 'Claude 방', mqtt: '공개 MQTT 중계 서버', local: 
 
 export const OnlineUI = {
   session: null,
-  form: { hu: 2, ai: 0, df: 'normal', ch: false, ef: false },
+  form: { hu: 2, ai: 0, df: 'normal', ch: false, ef: false, tl: 60 },
   view: null, notice: '', error: '', busy: '', codeDraft: '', nickDraft: null,
 
   init() {
@@ -88,6 +88,7 @@ export const OnlineUI = {
         <div class="sc-note">사람 수</div>${this.seg('hu', f.hu, [[2, '2명'], [3, '3명'], [4, '4명']])}
         <div class="sc-note">AI 자리 (남는 자리를 AI 가 채웁니다)</div>${this.seg('ai', f.ai, [[0, '없음'], [1, '1명'], [2, '2명']].filter(([v]) => v <= maxAi))}
         ${f.ai ? `<div class="sc-note">AI 난이도</div>${this.seg('df', f.df, [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']])}` : ''}
+        <div class="sc-note">차례 제한 시간 (시간이 지나면 AI 가 그 차례를 대신 둡니다)</div>${this.seg('tl', f.tl, [[0, '없음'], [30, '30초'], [60, '60초'], [90, '90초']])}
         <label class="switch-row" for="onCh"><span><b>혼돈 모드</b><small>증강을 2번씩 선택</small></span><input type="checkbox" id="onCh" data-opt="ch" ${f.ch ? 'checked' : ''}><i class="sw"></i></label>
         <label class="switch-row" for="onEf"><span><b>1위가 나오면 바로 종료</b><small>끄면 마지막 순위까지 겨룹니다</small></span><input type="checkbox" id="onEf" data-opt="ef" ${f.ef ? 'checked' : ''}><i class="sw"></i></label>
         <button type="button" class="mbtn primary" data-act="create" ${this.busy ? 'disabled' : ''}>${this.busy === 'create' ? '방을 여는 중…' : '방 만들기'}</button></section>
@@ -102,7 +103,7 @@ export const OnlineUI = {
   lobbyHtml(v) {
     const cfg = v.cfg, s = this.session;
     const finding = v.phase === 'join' || !v.cfg;
-    const mem = v.members.map(m => `<div class="mem"><i class="sdot" style="background:${PCOL[m.seat]}"></i><b>${esc(m.nick)}${m.me ? ' (나)' : ''}</b>${m.host ? '<span class="tag">방장</span>' : ''}<span class="tag ${m.live ? 'ok' : 'off'}">${m.live ? '연결됨' : '끊김'}</span>${v.isHost && !m.me ? `<button type="button" data-act="kick" data-sid="${esc(m.sid)}" aria-label="${esc(m.nick)} 내보내기">내보내기</button>` : ''}</div>`).join('');
+    const mem = v.members.map(m => `<div class="mem"><i class="sdot" style="background:${PCOL[m.seat]}"></i><b>${esc(m.nick)}${m.me ? ' (나)' : ''}</b>${m.av ? `<span class="tag">v${esc(m.av)}</span>` : ''}${m.host ? '<span class="tag">방장</span>' : ''}<span class="tag ${m.live ? 'ok' : 'off'}">${m.live ? '연결됨' : '끊김'}</span>${v.isHost && !m.me ? `<button type="button" data-act="kick" data-sid="${esc(m.sid)}" aria-label="${esc(m.nick)} 내보내기">내보내기</button>` : ''}</div>`).join('');
     const empty = cfg ? Array.from({ length: Math.max(0, cfg.hu - v.members.length) }, () => '<div class="mem"><i class="sdot" style="background:var(--line)"></i><b style="color:var(--muted)">비어 있음</b></div>').join('') : '';
     const aiN = cfg ? cfg.n - cfg.hu : 0;
     const startable = v.isHost && v.members.length >= 2 && v.phase === 'lobby';
@@ -113,7 +114,7 @@ export const OnlineUI = {
       <section class="setup-card"><div class="sc-head">방 코드</div>
         <div class="code-big" aria-label="방 코드 ${esc(v.code.split('').join(' '))}">${esc(v.code)}</div>
         <div class="row2"><button type="button" class="mbtn" data-act="copy" data-t="${esc(v.code)}">코드 복사</button><button type="button" class="mbtn" data-act="copy" data-t="${esc(link)}">초대 링크 복사</button></div>
-        <p class="on-note">${finding ? '방을 찾는 중이에요…' : `사람 ${cfg.hu}명${aiN ? ` + AI ${aiN}명(${DF_NAME[cfg.df]})` : ''}${cfg.ch ? ' · 혼돈' : ''}${cfg.ef ? ' · 1위 나오면 종료' : ''}`}</p></section>
+        <p class="on-note">${finding ? '방을 찾는 중이에요…' : `사람 ${cfg.hu}명${aiN ? ` + AI ${aiN}명(${DF_NAME[cfg.df]})` : ''}${cfg.ch ? ' · 혼돈' : ''}${cfg.ef ? ' · 1위 나오면 종료' : ''}${cfg.tl ? ` · 제한 ${cfg.tl}초` : ''}`}</p></section>
       ${finding ? '' : `<section class="setup-card"><div class="sc-head">참가자 ${v.members.length}/${cfg.hu}</div><div>${mem}${empty}</div></section>`}
       ${v.phase === 'start' ? '<p class="on-note">모두의 시작 값을 모으는 중이에요… (방장도 시작 값을 고를 수 없게 모두가 함께 정해요)</p>' : ''}
       ${v.isHost ? `<button type="button" class="start-btn" data-act="start" ${startable ? '' : 'disabled'}>${v.phase === 'start' ? '준비 중…' : '시작'}</button>${v.members.length < 2 ? '<p class="on-note">한 명 이상 더 들어오면 시작할 수 있어요.</p>' : ''}` : (finding ? '' : `<p class="on-note">방장이 시작하기를 기다리는 중이에요.</p>`)}
@@ -130,6 +131,7 @@ export const OnlineUI = {
     if (act === 'hu') { f.hu = +b.dataset.v; this.render(); }
     else if (act === 'ai') { f.ai = +b.dataset.v; this.render(); }
     else if (act === 'df') { f.df = b.dataset.v; this.render(); }
+    else if (act === 'tl') { f.tl = +b.dataset.v; this.render(); }
     else if (act === 'create') this.doCreate();
     else if (act === 'join') this.doJoin();
     else if (act === 'resume') { this.error = ''; this.busy = 'resume'; const ok = await s.resume(); this.busy = ''; if (!ok) this.render(); }
@@ -146,7 +148,7 @@ export const OnlineUI = {
   async doCreate() {
     this.saveNick(); this.error = ''; this.busy = 'create'; this.render();
     const f = this.form;
-    const code = await this.session.create({ n: f.hu + f.ai, hu: f.hu, ch: f.ch ? 1 : 0, df: f.ai ? f.df : 'normal', ef: f.ef ? 1 : 0 });
+    const code = await this.session.create({ n: f.hu + f.ai, hu: f.hu, ch: f.ch ? 1 : 0, df: f.ai ? f.df : 'normal', ef: f.ef ? 1 : 0, tl: f.tl });
     this.busy = '';
     if (code) { this.view = this.session.core.view(); this.render(); } else this.render();
   },
@@ -168,7 +170,8 @@ export const OnlineUI = {
   },
   onError(e) {
     const msg = ERROR_TEXT[e.code] || (e.code === 'engine' ? '게임 진행 중 오류가 났어요.' : '연결에 문제가 생겼어요.');
-    if (e.code === 'startfail') { this.notice = msg; if (this.shown()) this.render(); return; }
+    if (e.code === 'startfail' || e.code === 'peerversion') { this.notice = e.code === 'peerversion' ? `${msg} (${e.nick || '상대'}: ${e.av ? 'v' + e.av : '예전 버전'})` : msg; if (this.shown()) this.render(); return; }
+    if (e.code === 'version') { this.error = `${msg} (방장: ${e.theirs ? 'v' + e.theirs : '예전 버전'}, 내 앱: v${APP_VERSION})`; this.busy = ''; if (!this.session.active) this.view = null; if (this.shown()) this.render(); else this.open(); return; }
     this.busy = '';
     if (!this.session.active) this.view = null;
     this.error = msg;

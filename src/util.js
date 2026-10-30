@@ -29,7 +29,9 @@ export const sleep = ms => {
 };
 export const noEmoji = s => String(s).replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '').replace(/\s{2,}/g, ' ').trim();
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const APP_VERSION = '1.02';      // 화면에 보이는 버전
 export const HOME = -1, DONE = 99;
+export const AUTO_PICK = '__auto__';   // 온라인 동시 선택: 시간 초과·AI 대체로 이 자리의 선택을 엔진이 정해야 한다는 표시
 export const DRAFT_ROUNDS = [1, 4, 8];      // 증강 선택 라운드 (시작 / 중간 / 마무리)
 export const WIN_FROM_ROUND = 3;           // 특수 승리는 이 라운드부터 발동
 export const KIM_TURNS = 5;                // 김첨지 완주 제한 차례

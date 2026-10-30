@@ -1,6 +1,6 @@
 // Claude room 전송 시험(모의 room): 방 모으기·시작·입력 복제, 전달이 가끔 빠져도 수렴, presence 4KiB 한도 지키는지.
 // 사용: node tests/net-room.mjs
-import { RoomCore, makeCode } from '../src/net/room.js';
+import { RoomCore, makeCode, cleanState } from '../src/net/room.js';
 import { ClaudeRoomTransport, chooseTransport, MqttTransport, LocalTransport } from '../src/net/transports.js';
 import { MockRoomHub } from './lib/mockroom.mjs';
 
@@ -39,7 +39,7 @@ ps[1].close(); await sleep(200);
 const back = peer('손님1', 'GuestBBB', code); ps[1] = back;
 await back.open(); back.core.restore(snap); back.core.join; 
 for (let i = 120; i < 130; i++) { back.core.store.propose(0, i, 't'); await sleep(40); }
-check(await until(() => ps.every(p => JSON.stringify(p.core.streams.slice(0, 4)) === JSON.stringify(ps[0].core.streams.slice(0, 4))) && ps[0].core.streams[1].length >= 10, 40000), '새로고침 뒤 복구·이어서 입력', { lens: lens() });
+check(await until(() => ps.every(p => JSON.stringify(p.core.streams.slice(0, 4)) === JSON.stringify(ps[0].core.streams.slice(0, 4))) && ps[0].core.streams[back.core.myIdx].length >= 50, 40000), '새로고침 뒤 복구·이어서 입력', { lens: lens(), dbg: (() => { const pe = ps[0].core.peers.get(back.core.sid); return { seat: back.core.myIdx, ro: ps[0].core.ro.length, gone: pe && pe.gone, live: ps[0].core.isLive(back.core.sid), hv: pe && pe.st.hv, e: pe && pe.st.e && [pe.st.e.from, pe.st.e.list.length], c: pe && pe.st.c && [pe.st.c.from, pe.st.c.list.length], bind: ps[0].core.bind.get(back.sid), backId: back.tx && back.tx.r && back.tx.r.peer, mine: back.core.streams[back.core.myIdx].length, stateKeys: Object.keys(back.core.buildState()), host0hv: ps[0].core.buildState().hv, cleaned: !!cleanState(JSON.parse(JSON.stringify(back.core.buildState()))), hostPeers: [...ps[0].core.peers.keys()], backSid: back.sid, hostBind: [...ps[0].core.bind.entries()].map(([k, v]) => k + '>' + v), hostSees: ps[0].tx.r.peers().map(x => x.peer + ':' + Object.keys(x.presence).length) }; })() });
 check(await until(() => ps[0].core.isLive('GuestBBB')), '복귀자 접속 상태', {});
 
 // 선택 규칙

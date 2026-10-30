@@ -1,6 +1,7 @@
 // 온라인 대전 한 판의 생명주기: 전송 계층 연결 → 방 프로토콜(RoomCore) → 게임 연결(Bridge).
 // 화면(DOM)은 모르고, 화면 쪽은 on 콜백으로 소식을 받는다.
 import { Bridge } from './bridge.js';
+import { APP_VERSION } from '../util.js';
 import { RoomCore, makeCode, normCode, cleanText } from './room.js';
 import { chooseTransport } from './transports.js';
 
@@ -19,6 +20,8 @@ export const ERROR_TEXT = {
   seedmismatch: '시작 값이 맞지 않아 중단했어요. 다시 시작해 주세요.',
   noroom: '온라인 대전은 로그인한 상태에서만 쓸 수 있어요.',
   joinfail: '방에 들어가지 못했어요. 잠시 뒤에 다시 시도해 주세요.',
+  version: '방장의 앱 버전과 달라서 들어갈 수 없어요. 두 기기 모두 앱을 완전히 껐다가 인터넷이 되는 상태에서 다시 열어 같은 버전으로 맞춰 주세요.',
+  peerversion: '앱 버전이 다른 사람이 들어오려 해요. 그 사람이 앱을 완전히 껐다 다시 열어 업데이트해야 같이 할 수 있어요.',
   offline: '인터넷에 연결되지 않았어요.',
 };
 
@@ -35,10 +38,10 @@ const randInt = n => { const a = new Uint32Array(1); if (globalThis.crypto && gl
 
 export class Session {
   // ui/r/sfx/animateMove: 화면 어댑터(Bridge 에 그대로 전달)   on: 화면 쪽 콜백   env: 저장소·주소·창(테스트에서 바꿔 끼움)
-  constructor({ ui, r, sfx, animateMove, on = {}, env = defaultEnv(), auto = false, alwaysInstant = false, makeTransport = null, autoTakeoverMs = 0, sidOverride = null }) {
+  constructor({ ui, r, sfx, animateMove, on = {}, env = defaultEnv(), auto = false, alwaysInstant = false, makeTransport = null, autoTakeoverMs = 0, sidOverride = null, peerGraceMs = 15000 }) {
     Object.assign(this, { ui, r, sfx, animateMove, on, env, auto, alwaysInstant, makeTransport, autoTakeoverMs });
     this.core = null; this.tx = null; this.bridge = null; this.timer = null; this.gate = null; this.status = { connected: 0, total: 0 };
-    this.lastSaveKey = ''; this.lastSaveAt = 0; this.lastRefresh = 0; this.waitingSince = 0; this.over = false; this.sidOverride = sidOverride;
+    this.lastSaveKey = ''; this.lastSaveAt = 0; this.lastRefresh = 0; this.waitingSince = 0; this.pendSince = new Map(); this.timeoutSent = new Set(); this.peerGraceMs = peerGraceMs; this.over = false; this.sidOverride = sidOverride;
   }
   get sid() {
     if (this.sidOverride) return this.sidOverride;
@@ -78,7 +81,7 @@ export class Session {
     this.over = false;
     const sid = this.sid;
     this.tx = this.makeTransport ? this.makeTransport({ code, sid }) : chooseTransport({ code, sid, hash: this.env.hash(), win: this.env.win });
-    this.core = new RoomCore({ sid, nick: this.nick, randHex: randBytesHex, randInt, publish: st => { if (this.tx) this.tx.set(st); }, onEvent: (t, d) => this.onCore(t, d) });
+    this.core = new RoomCore({ sid, nick: this.nick, appVer: APP_VERSION, randHex: randBytesHex, randInt, publish: st => { if (this.tx) this.tx.set(st); }, onEvent: (t, d) => this.onCore(t, d) });
     try {
       await this.tx.open({ onPeers: list => { if (this.core) this.core.receive(list); }, onStatus: s => { this.status = s; this.emit('status', s); } });
     } catch (e) {
@@ -127,18 +130,31 @@ export class Session {
     if (this.core.phase === 'play') {
       if (now - this.lastSaveAt > 1500) this.saveNow();
       const b = this.bridge;
-      if (b && b.running && b.ui.remote) {
+      if (b && b.running && b.remotes.size) {
         if (!this.waitingSince) this.waitingSince = now;
         if (now - this.lastRefresh > 1000) { this.lastRefresh = now; b.ui.refresh(); }
-        const p = b.pending;
-        if (this.autoTakeoverMs && p && !this.core.isLive(this.core.ro[p.seat]) && now - this.waitingSince > this.autoTakeoverMs) { this.takeover(p.seat); this.waitingSince = now; }
-      } else this.waitingSince = 0;
+        for (const pd of b.pendings.values()) {
+          if (this.core.store.isLocal(pd.seat)) continue;
+          const since = this.pendSince.get(pd.k) || (this.pendSince.set(pd.k, now), now);
+          if (this.autoTakeoverMs && !this.core.isLive(this.core.ro[pd.seat]) && now - since > this.autoTakeoverMs) { this.takeover(pd.seat); this.pendSince.set(pd.k, now); }
+          // 상대 기기가 제한 시간을 알리지 못하면(앱이 멈춘 경우 등) 여유 시간이 지난 뒤 다른 사람이 대신 알린다
+          const tl = (this.core.cfg && this.core.cfg.tl) || 0;
+          if (tl && !this.timeoutSent.has(pd.k) && now - since > ((pd.kind === 'draft' ? Math.max(tl, 45) : tl) * 1000) + this.peerGraceMs && this.isTimeoutReporter(pd.seat)) { this.timeoutSent.add(pd.k); this.core.store.propose(2, pd.k, 0); }
+        }
+      } else { this.waitingSince = 0; if (!b || !b.remotes.size) this.pendSince.clear(); }
     }
   }
   isLive(seat) { return !!this.core && this.core.isLive(this.core.ro[seat]); }
+  // 대신 알리는 역할: 그 자리 주인을 뺀 살아 있는 사람 중 가장 앞 좌석 하나(여러 명이 중복해서 올리지 않도록)
+  isTimeoutReporter(seat) {
+    const core = this.core;
+    for (let i = 0; i < core.ro.length; i++) if (i !== seat && core.isLive(core.ro[i])) return i === core.myIdx;
+    return false;
+  }
   takeover(seat) {
     if (!this.core || !this.bridge) return;
-    const k = this.bridge.pending ? this.bridge.pending.k : this.bridge.k;
+    const pd = this.bridge.pendingFor(seat);
+    const k = pd ? pd.k : this.bridge.k;
     this.core.store.propose(1, seat, k);
   }
 
