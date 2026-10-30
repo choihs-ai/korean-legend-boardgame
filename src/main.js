@@ -25,7 +25,8 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', flushSave);
 // 오프라인 캐시(웹 서버에서 열었을 때만)
-if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+// (아티팩트용 단일 파일에서는 서비스 워커를 쓸 수 없어 빌드할 때 __SINGLE__ 을 켜서 뺀다)
+if (typeof __SINGLE__ === 'undefined' && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
 }
 

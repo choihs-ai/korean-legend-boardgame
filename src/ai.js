@@ -313,7 +313,9 @@ export const AI = {
   delivery(p) {
     const next = G.round < DRAFT_ROUNDS[1] ? 'mid' : G.round < DRAFT_ROUNDS[2] ? 'end' : 'general';
     const pool = AUGS.filter(a => (a.cat === next || a.cat === 'general') && !p.augs.some(x => x.id === a.id) && a.id !== 'delivery');
-    return pool.sort((a, b) => (this.W[b.id] ?? 4) - (this.W[a.id] ?? 4) + (rand() - 0.5))[0].id;
+    // 비교 함수 안에서 난수를 부르면 정렬 알고리즘(엔진)마다 난수를 쓰는 횟수·순서가 달라진다 → 원소마다 한 번씩 미리 뽑아 둔다
+    const scored = pool.map(a => ({ id: a.id, s: (this.W[a.id] ?? 4) + (rand() - 0.5) }));
+    return scored.sort((a, b) => b.s - a.s)[0].id;
   },
   illusion(p, targets) {
     // 고양이로 착각된 증강이 생기는 순간 '고양이 좋아' 보유자가 이긴다

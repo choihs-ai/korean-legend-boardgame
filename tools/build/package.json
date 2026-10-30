@@ -1,0 +1,7 @@
+{
+  "name": "augyut-build-tools",
+  "private": true,
+  "description": "아티팩트용 단일 파일을 만들 때만 쓰는 번들러. 게임 본체와 GitHub Pages 배포에는 필요 없습니다.",
+  "type": "module",
+  "devDependencies": { "esbuild": "0.25.0" }
+}
