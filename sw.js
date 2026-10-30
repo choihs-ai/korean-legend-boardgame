@@ -1,6 +1,6 @@
 // 오프라인 캐시. GitHub Pages 하위 경로(/korean-legend-boardgame/)에서도 동작하도록 상대 경로만 쓴다.
 // 네트워크를 먼저 시도해 새 버전을 받고, 실패하면 캐시로 연다.
-const CACHE = 'augyut-v3';
+const CACHE = 'augyut-v4';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
