@@ -113,6 +113,8 @@ export class Session {
     this.core.restore(snap);
     return true;
   }
+  // 앱이 다시 화면에 나왔을 때: 연결을 확인하고 내 상태를 다시 올린다
+  wake() { if (this.tx && this.tx.wake) this.tx.wake(); if (this.core) this.core.flush(true); }
   start() { return this.core ? this.core.start() : false; }
   kick(sid) { if (this.core) this.core.kick(sid); }
 

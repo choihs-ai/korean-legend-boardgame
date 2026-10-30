@@ -38,7 +38,7 @@ export const OnlineUI = {
     });
     body.addEventListener('change', e => { const o = e.target.dataset && e.target.dataset.opt; if (o) { this.form[o] = e.target.checked; } });
     body.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'onCode') this.doJoin(); });
-    const hide = () => { if (document.hidden) s.saveNow(true); };
+    const hide = () => { if (document.hidden) s.saveNow(true); else s.wake(); };
     document.addEventListener('visibilitychange', hide);
     window.addEventListener('pagehide', () => s.saveNow(true));
     // 초대 링크(#join-ABCD)로 열면 참가 화면을 미리 채워서 보여 준다

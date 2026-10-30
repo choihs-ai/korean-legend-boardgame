@@ -35,10 +35,16 @@ export class ClaudeRoomTransport {
     if (!room) throw Object.assign(new Error('room 사용 불가'), { code: 'noroom' });
     let r;
     try { r = await room.join(`aug1-${this.code.toLowerCase()}`); }
-    catch (e) { throw Object.assign(new Error('방 입장 실패'), { code: e && e.code === 'not_permitted' ? 'noroom' : 'joinfail' }); }
+    catch (e) {
+      // 이름 붙은 방을 못 쓰는 보기라면 로비 방을 같이 쓰고, 상태에 방 코드(k)를 달아 같은 코드끼리만 서로 본다
+      if (e && (e.code === 'not_permitted' || e.code === 'limit_reached')) { r = room; this.shared = true; }
+      else throw Object.assign(new Error('방 입장 실패'), { code: 'joinfail' });
+    }
     this.r = r;
     const push = change => {
-      const list = (change ? change.peers : r.peers()).filter(p => !p.sameTab && p.presence && Object.keys(p.presence).length).map(p => ({ id: p.peer, state: p.presence }));
+      const list = (change ? change.peers : r.peers())
+        .filter(p => !p.sameTab && p.presence && Object.keys(p.presence).length && (!this.shared || p.presence.k === this.code))
+        .map(p => ({ id: p.peer, state: p.presence }));
       h.onPeers(list);
     };
     this.unsubs.push(r.onPeers(push, e => h.onStatus({ connected: 0, total: 1, error: e && e.code })));
@@ -47,12 +53,15 @@ export class ClaudeRoomTransport {
   }
   // presence 는 필드별로 합쳐지므로, 이번에 없는 필드는 null 로 지운다
   set(state) {
-    const patch = { ...state };
+    const patch = this.shared ? { ...state, k: this.code } : { ...state };
     for (const k of this.sent) if (!(k in patch)) patch[k] = null;
-    this.sent = new Set(Object.keys(state));
+    this.sent = new Set(Object.keys(patch).filter(k => patch[k] !== null));
     this.r.presence(patch).catch(() => {});
   }
-  close() { for (const u of this.unsubs) { try { u(); } catch (e) { /* 무시 */ } } if (this.r) this.r.leave().catch(() => {}); }
+  close() {
+    for (const u of this.unsubs) { try { u(); } catch (e) { /* 무시 */ } }
+    if (this.r) { if (this.shared) { const gone = {}; for (const k of this.sent) gone[k] = null; this.r.presence(gone).catch(() => {}); } else this.r.leave().catch(() => {}); }
+  }
 }
 
 /* ===== 공개 MQTT 브로커 여러 곳에 동시에 붙어 우편함처럼 쓴다 ===== */
@@ -94,6 +103,7 @@ export class MqttTransport {
     const payload = new TextEncoder().encode(JSON.stringify(state)), topic = this.prefix + this.sid;
     for (const c of this.conns) c.setMine(topic, payload);
   }
+  wake() { for (const c of this.conns) c.wake(); }
   close() { const topic = this.prefix + this.sid; for (const c of this.conns) c.close(topic); }
 }
 

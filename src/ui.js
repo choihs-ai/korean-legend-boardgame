@@ -179,7 +179,9 @@ export const UI = {
     if (!NET.online || !this.net || !this.net.core) { b.hidden = true; return; }
     const core = this.net.core, live = core.ro.filter(sid => core.isLive(sid)).length, st = this.net.status;
     b.hidden = false;
-    b.textContent = `온라인 ${live}/${core.ro.length}`;
+    b.textContent = `${live}/${core.ro.length}`;
+    b.setAttribute('aria-label', `온라인 접속 ${live}/${core.ro.length}명`);
+    b.title = '온라인 접속 인원';
     b.classList.toggle('warn', live < core.ro.length || (st && st.total && !st.connected));
   },
   playersView() {
@@ -243,7 +245,7 @@ export const UI = {
     if (!T || !T.chips.length) this.sel = null;
     let chips = '';
     if (T && T.chips.length) chips = T.chips.map((v, i) => `<button type="button" class="chip ${v < 0 ? 'neg' : ''} ${human && this.sel === i ? 'sel' : ''}" data-ci="${i}" ${human ? '' : 'disabled'}>${resName(v)}${modValue(p, v) !== v ? `<small> ${modValue(p, v)}칸</small>` : ''}</button>`).join('');
-    else if (G.draft) chips = '<span class="hint">증강을 고르는 중…</span>';
+    else if (G.draft && !(this.remote && !this.remote.ai)) chips = '<span class="hint">증강을 고르는 중…</span>';
     else if (p && p.ai) chips = `<span class="hint">${G.mask ? '???' : p.name} (AI) 두는 중${SKIP ? ' · 건너뛰는 중' : ' · 판을 탭하면 건너뛰기'}</span>`;
     else if (human && T.throwsLeft > 0) chips = '<span class="hint">윷을 던지세요</span>';
     else if (human) chips = '<span class="hint">증강을 쓰거나 턴을 마치세요</span>';
@@ -525,7 +527,8 @@ export const UI = {
       <h3>특수 승리 밸런스</h3><ul><li>증강의 특수 승리 조건은 ${WIN_FROM_ROUND}라운드 전에는 발동하지 않습니다. 조건을 먼저 채우면 기록해 두었다가 ${WIN_FROM_ROUND}라운드가 시작될 때 발동합니다.</li><li>김첨지는 ${KIM_TURNS}차례 안에, 내 다른 말보다 먼저(또는 함께) 완주해야 승리합니다.</li></ul>
       <h3>이어하기</h3><p>매 차례가 끝날 때 판이 이 기기에 저장됩니다. 앱을 닫았다가 타이틀의 ‘이어하기’를 누르면 그 차례의 처음부터 이어집니다.</p>
       <h3>순위</h3><ul><li>완주·특수 승리는 남은 가장 높은 순위, 탈락은 남은 가장 낮은 순위를 받습니다.</li><li>‘1위가 나오면 바로 종료’를 끄면 마지막 한 명이 남을 때까지 겨룹니다. 그 전에 끝나면 남은 사람은 진행도로 순위를 매깁니다.</li></ul>
-      <h3>한 기기에서</h3><p>비밀 선택(계획대로·명탐정·배달·내려 투표·나 누구게?)은 가림막이 뜹니다. 해당 플레이어만 화면을 보고 터치하세요.</p>
+      <h3>온라인 대전</h3><ul><li>타이틀의 ‘온라인 대전’에서 방을 만들고, 친구는 4자리 방 코드(또는 초대 링크)로 들어옵니다. 사람 2~4명, 빈 자리는 AI.</li><li>모든 기기가 같은 시드로 같은 판을 돌립니다. 시드는 참가자 모두가 함께 정해 방장도 고를 수 없고, 윷 결과도 모두 같은 수열에서 나옵니다.</li><li>연결이 끊긴 사람은 돌아오면 이어서 합니다. 오래 안 오면 다른 사람이 ‘AI에게 맡기기’를 눌러 그 자리를 AI가 이어 둘 수 있습니다.</li><li>온라인에서는 기기마다 화면이 따로라 비밀 선택에 가림막이 없습니다.</li></ul>
+            <h3>한 기기에서</h3><p>비밀 선택(계획대로·명탐정·배달·내려 투표·나 누구게?)은 가림막이 뜹니다. 해당 플레이어만 화면을 보고 터치하세요.</p>
       <h3>판 변형</h3><ul><li>게임 접어라: 출구가 있는 절반이 남고 반대편 칸은 거울 칸과 합쳐집니다. 출구와 겹친 모서리는 출구가 됩니다.</li><li>돌려돌려 돌림판: 판이 시계방향 90° 회전하고, 출구 자리는 그대로라 각 말의 남은 거리가 바뀝니다.</li><li>알까기: 판 위 말뭉치가 알이 됩니다. 내 알을 당겼다 놓으면 반대쪽으로 튕겨 나가고, 점선 밖으로 나간 알은 죽습니다.</li></ul>
       </div><div class="mopts"><button type="button" class="mbtn" data-info="book">증강 도감 보기</button></div>`);
   },

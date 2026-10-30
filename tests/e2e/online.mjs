@@ -91,7 +91,8 @@ async function fault(kind) {
   await new Promise(r => setTimeout(r, 1500));
   const hint = (await Promise.all(pages.map(p => p.textContent('#chips')))).join('|');
   check(/두는 중|증강을 고르는/.test(hint), `${name}: 대기 안내 문구`, { hint });
-  check((await Promise.all(pages.map(p => p.textContent('#netBadge')))).every(t => /온라인 \d\/3/.test(t)), `${name}: 접속 배지`, {});
+  check((await Promise.all(pages.map(p => p.textContent('#netBadge')))).every(t => /^\d\/3$/.test(t.trim())), `${name}: 접속 배지`, {});
+  if (kind === 'leave') await pages[0].screenshot({ path: 'tests/e2e/out/online-waiting.png' });
   let alive = pages.slice(), victim = pages[2];
   if (kind === 'leave') {
     await victim.click('#menuBtn'); await victim.click('button[data-info="quit"]'); await victim.click('button[data-info="quit"]');

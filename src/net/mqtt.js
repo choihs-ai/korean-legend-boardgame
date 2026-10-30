@@ -53,7 +53,7 @@ export function parsePublish(pk) {
 export class MqttConn {
   constructor({ url, clientId, willTopic, filters, WS = globalThis.WebSocket, onMessage, onStatus, now = () => Date.now() }) {
     Object.assign(this, { url, clientId, willTopic, filters, WS, onMessage, onStatus, now });
-    this.ws = null; this.ready = false; this.closed = false; this.tries = 0; this.pid = 1; this.pingTimer = null; this.retryTimer = null; this.mine = null; this.connectTimer = null;
+    this.ws = null; this.ready = false; this.closed = false; this.tries = 0; this.pid = 1; this.pingTimer = null; this.retryTimer = null; this.mine = null; this.connectTimer = null; this.lastRx = 0;
   }
   start() { this.closed = false; this.connect(); }
   connect() {
@@ -65,6 +65,7 @@ export class MqttConn {
     this.connectTimer = setTimeout(() => { if (!this.ready) { try { ws.close(); } catch (e) { /* 무시 */ } } }, 8000);
     ws.onopen = () => ws.send(encodeConnect({ clientId: this.clientId, willTopic: this.willTopic }));
     ws.onmessage = ev => {
+      this.lastRx = this.now();
       let pks;
       try { pks = reader.push(new Uint8Array(ev.data)); } catch (e) { try { ws.close(); } catch (er) { /* 무시 */ } return; }
       for (const pk of pks) {
@@ -74,7 +75,13 @@ export class MqttConn {
           this.ready = true; this.tries = 0; clearTimeout(this.connectTimer);
           for (const f of this.filters) ws.send(encodeSubscribe(this.pid++ & 0xffff || 1, f));
           if (this.mine) this.publish(this.mine.topic, this.mine.payload, true);
-          clearInterval(this.pingTimer); this.pingTimer = setInterval(() => { try { ws.send(PINGREQ); } catch (e) { /* 무시 */ } }, 20000);
+          this.lastRx = this.now();
+          clearInterval(this.pingTimer);
+          this.pingTimer = setInterval(() => {
+            // 폰이 잠들었다 깨면 연결이 죽었는데도 열려 있는 것처럼 보일 수 있다 → 오래 아무 소식이 없으면 끊고 다시 붙는다
+            if (this.now() - this.lastRx > 50000) { try { ws.close(); } catch (e) { /* 무시 */ } return; }
+            try { ws.send(PINGREQ); } catch (e) { /* 무시 */ }
+          }, 15000);
           this.onStatus(true);
         } else if (type === 3) {
           const m = parsePublish(pk);
@@ -90,6 +97,14 @@ export class MqttConn {
       this.scheduleRetry();
     };
     ws.onclose = down; ws.onerror = () => { try { ws.close(); } catch (e) { /* 무시 */ } };
+  }
+  // 앱이 다시 화면에 나왔을 때: 끊겨 있으면 바로 다시 붙고, 붙어 있으면 연결이 살아 있는지 확인하고 내 상태를 다시 올린다
+  wake() {
+    if (this.closed) return;
+    if (!this.ready) { clearTimeout(this.retryTimer); this.tries = 0; if (!this.ws) this.connect(); return; }
+    this.lastRx = Math.min(this.lastRx, this.now() - 35000);   // 곧 확인 핑이 가도록 (15초 안에 응답이 없으면 끊고 다시 붙음)
+    try { this.ws.send(PINGREQ); } catch (e) { /* 무시 */ }
+    if (this.mine) this.publish(this.mine.topic, this.mine.payload, true);
   }
   scheduleRetry() {
     if (this.closed) return;
