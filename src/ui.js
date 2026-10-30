@@ -1,4 +1,4 @@
-import { bumpGen, CFG, G, GEN, setG, setSkip, SKIP } from './state.js';
+import { bumpGen, CFG, G, GEN, NET, setG, setSkip, SKIP } from './state.js';
 import { $, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, resName, sleep, TYPE_ICON, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
 import { AUG_BY, AUGS, CAT_NAME, KIND_NAME } from './augs.js';
 import { SFX } from './sound.js';
@@ -12,6 +12,8 @@ import { R } from './render.js';
    ===================================================================== */
 export const UI = {
   sel: null, wait: null, pick: null, modalRes: null, _ft: 0, confirmQuit: false,
+  remote: null,   // 온라인: 지금 입력을 기다리는 다른 사람의 좌석(플레이어)
+  net: null,      // 온라인 세션 (main.js 에서 연결)
   init() {
     $('#countSeg').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
@@ -31,9 +33,12 @@ export const UI = {
     $('#optSound').addEventListener('change', e => { SFX.on = e.target.checked; CFG.sound = SFX.on; this.saveCfg(); });
     $('#startBtn').addEventListener('click', () => { SFX.init(); SFX.play('aug'); startGame(); });
     $('#resumeBtn').addEventListener('click', () => { SFX.init(); SFX.play('aug'); resumeGame(); });
+    $('#onlineBtn').addEventListener('click', () => { SFX.init(); SFX.play('click'); if (this.openOnline) this.openOnline(); });
     $('#rulesBtn1').addEventListener('click', () => this.rules());
     $('#bookBtn1').addEventListener('click', () => this.book());
     $('#chips').addEventListener('click', e => {
+      const t = e.target.closest('button[data-take]');
+      if (t && this.net) { SFX.play('click'); this.net.takeover(+t.dataset.take); return; }
       const b = e.target.closest('button[data-ci]'); if (!b || b.disabled) return;
       this.sel = +b.dataset.ci; SFX.play('click'); this.refresh();
     });
@@ -88,6 +93,8 @@ export const UI = {
     rb.hidden = !snap;
     if (snap) rb.innerHTML = `이어하기<small>${snap.G.round}라운드 · ${snap.G.players.length}인${snap.G.chaos ? ' · 혼돈' : ''}</small>`;
     $('#startBtn').textContent = snap ? '새 게임' : '판 펼치기';
+    const og = this.net && this.net.savedGame ? this.net.savedGame() : null;
+    $('#onlineBtn').innerHTML = og ? `온라인 대전<small>진행 중이던 방 ${esc(og.code)}이 있어요</small>` : '온라인 대전<small>방 코드로 친구와 함께 · 2~4명</small>';
     const rec = loadRecords(), seenN = AUGS.filter(a => rec.seen.includes(a.id)).length;
     $('#recordsLine').textContent = `전적 ${rec.games}판` + (rec.humanGames ? ` · 사람 승률 ${Math.round(rec.humanWins / rec.humanGames * 100)}% (${rec.humanWins}/${rec.humanGames})` : '') + ` · 증강 수집 ${seenN}/${AUGS.length}`;
     $('#bookBtn1').textContent = `증강 도감 ${seenN}/${AUGS.length}`;
@@ -101,11 +108,12 @@ export const UI = {
     </div>`).join('');
   },
   enterGame() {
-    $('#title').hidden = true; $('#game').hidden = false;
+    $('#title').hidden = true; $('#online').hidden = true; $('#game').hidden = false;
     $('#chaosBadge').hidden = !G.chaos;
     requestAnimationFrame(() => { R.resize(); this.refresh(); });
   },
   toTitle() {
+    if (this.net && this.net.active) { const n = this.net; this.net = null; n.leave().finally(() => { this.net = n; }); }
     bumpGen();
     this.closeAll();
     setG(null);
@@ -164,6 +172,17 @@ export const UI = {
     else if (G.T) { const p = P(G.T.pid); tl = `<i style="background:${G.mask ? '#8d929e' : p.color}"></i>${G.mask ? '???' : p.name} 차례<small> 투척 ${Math.max(0, G.T.throwsLeft)}${G.echo && G.echo.active ? (G.echoSecond ? ' · 메아리 2/2' : ' · 메아리 1/2') : ''}</small>`; }
     $('#turnLbl').innerHTML = tl;
     $('#sndBtn').classList.toggle('off', !SFX.on);
+    this.netBadge();
+  },
+  netBadge() {
+    const b = $('#netBadge');
+    if (!NET.online || !this.net || !this.net.core) { b.hidden = true; return; }
+    const core = this.net.core, live = core.ro.filter(sid => core.isLive(sid)).length, st = this.net.status;
+    b.hidden = false;
+    b.textContent = `${live}/${core.ro.length}`;
+    b.setAttribute('aria-label', `온라인 접속 ${live}/${core.ro.length}명`);
+    b.title = '온라인 접속 인원';
+    b.classList.toggle('warn', live < core.ro.length || (st && st.total && !st.connected));
   },
   playersView() {
     const el = $('#players');
@@ -215,7 +234,7 @@ export const UI = {
     const stats = masked ? '' : this.stats(q);
     const line = (stats ? `<span class="pc-stats">${stats}</span>` : '') + (augs ? `<span class="pc-augs">${augs}</span>` : '');
     return `<button type="button" class="pcard ${turn ? 'turn' : ''} ${q.out ? 'out' : ''}" style="--pc:${col}" data-pid="${q.id}" aria-label="${esc(name)} 상세">
-      <div class="pc-top"><b>${esc(name)}</b><span class="who">${q.ai ? 'AI' : '사람'}</span><span class="waitdots" aria-label="대기 말">${waitDots}</span><span class="done">${masked ? '' : (rk ? esc(rk) + (q.badge ? ' ' + esc(q.badge) : '') + ' · ' : '') + (masked ? '' : `완주 ${doneCount(q)}/${need}`)}</span></div>
+      <div class="pc-top"><b>${esc(name)}</b><span class="who">${q.ai ? 'AI' : NET.online && q.id === NET.localSeat ? '나' : '사람'}</span><span class="waitdots" aria-label="대기 말">${waitDots}</span><span class="done">${masked ? '' : (rk ? esc(rk) + (q.badge ? ' ' + esc(q.badge) : '') + ' · ' : '') + (masked ? '' : `완주 ${doneCount(q)}/${need}`)}</span></div>
       <div class="pc-line">${line}</div>
     </button>`;
   },
@@ -226,10 +245,15 @@ export const UI = {
     if (!T || !T.chips.length) this.sel = null;
     let chips = '';
     if (T && T.chips.length) chips = T.chips.map((v, i) => `<button type="button" class="chip ${v < 0 ? 'neg' : ''} ${human && this.sel === i ? 'sel' : ''}" data-ci="${i}" ${human ? '' : 'disabled'}>${resName(v)}${modValue(p, v) !== v ? `<small> ${modValue(p, v)}칸</small>` : ''}</button>`).join('');
-    else if (G.draft) chips = '<span class="hint">증강을 고르는 중…</span>';
+    else if (G.draft && !(this.remote && !this.remote.ai)) chips = '<span class="hint">증강을 고르는 중…</span>';
     else if (p && p.ai) chips = `<span class="hint">${G.mask ? '???' : p.name} (AI) 두는 중${SKIP ? ' · 건너뛰는 중' : ' · 판을 탭하면 건너뛰기'}</span>`;
     else if (human && T.throwsLeft > 0) chips = '<span class="hint">윷을 던지세요</span>';
     else if (human) chips = '<span class="hint">증강을 쓰거나 턴을 마치세요</span>';
+    if (this.remote && !this.remote.ai) {      // 온라인: 다른 사람의 입력을 기다리는 중
+      const q = this.remote, live = !this.net || this.net.isLive(q.id);
+      chips += `<span class="hint">${esc(q.name)}님이 ${G.draft ? '증강을 고르는' : '두는'} 중…${live ? '' : ' (연결이 끊긴 것 같아요)'}</span>` +
+        (live ? '' : `<button type="button" class="mbtn" data-take="${q.id}">AI에게 맡기기</button>`);
+    }
     $('#chips').innerHTML = chips;
     const tb = $('#throwBtn');
     tb.disabled = !(human && T.throwsLeft > 0);
@@ -419,6 +443,8 @@ export const UI = {
       setTimeout(() => { b.onclick = () => { b.hidden = true; b.onclick = null; SFX.init(); SFX.play('click'); if (g === GEN) res(); }; }, 280);
     });
   },
+  // 알까기: 내 알을 당겼다 놓는 입력을 기다린다 (pointer 처리는 ALK.down/move/up)
+  alkShot() { return new Promise(res => { G.alk.onShot = res; }); },
   async alert(title, html, p) {
     if (!G || G.players.every(q => q.ai) || (p && p.ai)) { await sleep(AI.delay(900)); return; }
     await this.modal({ title, html, options: [{ label: '확인', value: true, cls: 'primary' }] });
@@ -479,7 +505,7 @@ export const UI = {
       <button type="button" class="mbtn" data-info="rules">룰북</button>
       <button type="button" class="mbtn" data-info="book">증강 도감 72</button>
       <button type="button" class="mbtn" data-info="log">게임 기록</button>
-      <button type="button" class="mbtn" data-info="quit">새 게임 (타이틀로)</button></div>`);
+      <button type="button" class="mbtn" data-info="quit">${NET.online ? '온라인 방 나가기 (내 자리는 AI가 이어 둠)' : '새 게임 (타이틀로)'}</button></div>${NET.online && this.net ? `<p class="mdesc">방 코드 <b>${esc(this.net.code)}</b> · ${esc(this.net.tx ? ({ room: 'Claude 방', mqtt: '공개 MQTT 중계', local: '같은 브라우저 탭' }[this.net.tx.name] || '') : '')}</p>` : ''}`);
   },
   book() {
     const rec = loadRecords(), seen = new Set(rec.seen), got = new Set(rec.got);
@@ -501,7 +527,8 @@ export const UI = {
       <h3>특수 승리 밸런스</h3><ul><li>증강의 특수 승리 조건은 ${WIN_FROM_ROUND}라운드 전에는 발동하지 않습니다. 조건을 먼저 채우면 기록해 두었다가 ${WIN_FROM_ROUND}라운드가 시작될 때 발동합니다.</li><li>김첨지는 ${KIM_TURNS}차례 안에, 내 다른 말보다 먼저(또는 함께) 완주해야 승리합니다.</li></ul>
       <h3>이어하기</h3><p>매 차례가 끝날 때 판이 이 기기에 저장됩니다. 앱을 닫았다가 타이틀의 ‘이어하기’를 누르면 그 차례의 처음부터 이어집니다.</p>
       <h3>순위</h3><ul><li>완주·특수 승리는 남은 가장 높은 순위, 탈락은 남은 가장 낮은 순위를 받습니다.</li><li>‘1위가 나오면 바로 종료’를 끄면 마지막 한 명이 남을 때까지 겨룹니다. 그 전에 끝나면 남은 사람은 진행도로 순위를 매깁니다.</li></ul>
-      <h3>한 기기에서</h3><p>비밀 선택(계획대로·명탐정·배달·내려 투표·나 누구게?)은 가림막이 뜹니다. 해당 플레이어만 화면을 보고 터치하세요.</p>
+      <h3>온라인 대전</h3><ul><li>타이틀의 ‘온라인 대전’에서 방을 만들고, 친구는 4자리 방 코드(또는 초대 링크)로 들어옵니다. 사람 2~4명, 빈 자리는 AI.</li><li>모든 기기가 같은 시드로 같은 판을 돌립니다. 시드는 참가자 모두가 함께 정해 방장도 고를 수 없고, 윷 결과도 모두 같은 수열에서 나옵니다.</li><li>연결이 끊긴 사람은 돌아오면 이어서 합니다. 오래 안 오면 다른 사람이 ‘AI에게 맡기기’를 눌러 그 자리를 AI가 이어 둘 수 있습니다.</li><li>온라인에서는 기기마다 화면이 따로라 비밀 선택에 가림막이 없습니다.</li></ul>
+            <h3>한 기기에서</h3><p>비밀 선택(계획대로·명탐정·배달·내려 투표·나 누구게?)은 가림막이 뜹니다. 해당 플레이어만 화면을 보고 터치하세요.</p>
       <h3>판 변형</h3><ul><li>게임 접어라: 출구가 있는 절반이 남고 반대편 칸은 거울 칸과 합쳐집니다. 출구와 겹친 모서리는 출구가 됩니다.</li><li>돌려돌려 돌림판: 판이 시계방향 90° 회전하고, 출구 자리는 그대로라 각 말의 남은 거리가 바뀝니다.</li><li>알까기: 판 위 말뭉치가 알이 됩니다. 내 알을 당겼다 놓으면 반대쪽으로 튕겨 나가고, 점선 밖으로 나간 알은 죽습니다.</li></ul>
       </div><div class="mopts"><button type="button" class="mbtn" data-info="book">증강 도감 보기</button></div>`);
   },
@@ -538,7 +565,7 @@ export const UI = {
     const moments = sum.moments.length ? `<section class="moments"><h3>결정적 순간</h3>${sum.moments.map(t => `<p>${esc(t)}</p>`).join('')}</section>` : '';
     SFX.play('win');
     this.modal({ title: head, html: `${moments}<div class="book-list">${rows}</div>${pw ? '<p class="mdesc">계획대로 증강이 최종 순위를 모두 맞혀 기존 순위가 사라졌습니다.</p>' : ''}`,
-      options: [{ label: '같은 설정으로 다시', value: 'again', cls: 'primary' }, { label: '타이틀로', value: 'title' }] })
+      options: NET.online ? [{ label: '방 나가기', value: 'title', cls: 'primary' }] : [{ label: '같은 설정으로 다시', value: 'again', cls: 'primary' }, { label: '타이틀로', value: 'title' }] })
       .then(v => { if (v === 'again') startGame(); else if (v === 'title') this.toTitle(); });
   }
 };

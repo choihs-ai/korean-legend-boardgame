@@ -17,6 +17,7 @@ export const headlessUI = {
   async alert() {},
   async draftPick(p, opts, forced) { return AI.pickAug(p, opts, forced); },
   async waitAction(p) { throw new Error(`사람 차례(${p.name})는 헤드리스에서 진행할 수 없습니다`); },
+  async alkShot(p, discs) { return ALK.shotAI(p, discs); },
   async showThrow() {},
   async flyStick() {},
   refresh: noop, flash: noop, toast: noop, banner: noop, hideBanner: noop, ticker: noop,
@@ -28,17 +29,10 @@ export const headlessR = {
   fxText: noop, fxRing: noop, fxBoom: noop,
   async fxShot() {}, async fxNova() {}, async fxDiagBlast() {},
   async animRotate() {}, async animFold() {},
-  // 알까기 물리는 프레임 대신 고정 간격으로 끝까지 돌린다
+  // 알까기는 결과를 미리 계산해 두므로 재생 없이 끝 상태로
   async wait(pred) {
-    for (let i = 0; i < 50000; i++) {
-      if (pred()) return;
-      if (G && G.alk && G.alk.phase === 'sim') {
-        ALK.step(0.01);
-        const moving = G.alk.discs.some(d => !d.out && Math.hypot(d.vx, d.vy) > 0.01);
-        if (!moving) { G.alk.discs.forEach(d => { d.fall = 1; }); G.alk.phase = 'done'; }
-      }
-    }
-    throw new Error('R.wait: 조건이 끝내 충족되지 않음');
+    if (G && G.alk && G.alk.phase === 'sim') ALK.finish();
+    if (!pred()) throw new Error('R.wait: 조건이 충족되지 않음');
   },
 };
 

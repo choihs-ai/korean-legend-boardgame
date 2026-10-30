@@ -1,0 +1,7 @@
+{
+  "name": "augyut-test-broker",
+  "private": true,
+  "description": "MQTT 클라이언트 시험용 로컬 브로커(aedes). 게임 본체는 이 패키지를 쓰지 않는다.",
+  "type": "module",
+  "dependencies": { "aedes": "0.51.3", "ws": "^8.18.0" }
+}

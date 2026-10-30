@@ -1,5 +1,5 @@
-import { bumpGen, CFG, G, io, nextPieceId, setG, setPieceId, setSkip } from './state.js';
-import { ABORT, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, resName, shuffle, sleep, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
+import { bumpGen, CFG, G, io, NET, nextPieceId, setG, setPieceId, setSkip } from './state.js';
+import { ABORT, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, rand, resName, shuffle, sleep, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
 import { ADJ, defaultPrev, DIAG, LINES, nextNode, nodeAt, NODES, ROT, XY } from './board.js';
 import { AUG_BY, AUGS, CAT_NAME, KIND_NAME } from './augs.js';
 import { checkpoint, clearSave, markGot, markSeen, readSave, recordGameEnd, restoreSnap, serializeGame } from './save.js';
@@ -30,7 +30,10 @@ export function newGame() {
     chosenRule: false, echo: null, echoSecond: false, murder: false, duel: null, rankTaken: new Set(), pendingWins: [], gather: CFG.gather, moments: [],
     log: [], T: null, draft: null, alk: null, anim: null, fx: [], planWinner: null
   });
-  for (let i = 0; i < CFG.n; i++) G.players.push(makePlayer(i, CFG.slots[i] === 'ai'));
+  for (let i = 0; i < CFG.n; i++) {
+    G.players.push(makePlayer(i, CFG.slots[i] === 'ai'));
+    if (CFG.names && CFG.names[i]) G.players[i].name = CFG.names[i];
+  }
 }
 
 /* ----- 조회 도우미 ----- */
@@ -447,7 +450,7 @@ export async function triggerTrap(p, stack, depth) {
   if (!t) return;
   if (t.kind === 'trap') {
     if (t.owner === p.id) return;
-    if (Math.random() < 0.5) {
+    if (rand() < 0.5) {
       say(`💣 함정! ${p.name}의 말이 터졌습니다`, '#e66');
       io.sfx.play('boom');
       await killPieces(stackOf(lead), P(t.owner), 'trap');
@@ -456,7 +459,7 @@ export async function triggerTrap(p, stack, depth) {
       await moveStack(p, lead, -3, { noTrap: true });
     }
   } else {
-    if (Math.random() < 0.5) {
+    if (rand() < 0.5) {
       say(`🎁 보상! ${p.name}의 말이 앞으로 2칸`);
       await moveStack(p, lead, 2, { depth: depth + 1 });
     } else {
@@ -487,11 +490,11 @@ export async function advancePawns(p) {
 export function stickCount(p) { return (has(p, 'excess') ? 6 : 4) + (has(p, 'burden') ? 1 : 0) - (has(p, 'equiv') ? 1 : 0); }
 export function throwSticks(p) {
   if (has(p, 'moordo')) {
-    const mo = Math.random() < 0.5;
+    const mo = rand() < 0.5;
     return { v: mo ? 5 : 1, flats: mo ? [false, false, false, false] : [false, true, false, false] };
   }
   const n = stickCount(p), ex = has(p, 'excess');
-  const flats = Array.from({ length: n }, () => Math.random() < 0.55);
+  const flats = Array.from({ length: n }, () => rand() < 0.55);
   const k = flats.filter(Boolean).length;
   let v;
   if (ex) v = k === n ? 'OUT' : k === 0 ? 5 : k >= 4 ? 4 : k;
@@ -670,7 +673,7 @@ export async function acquire(p, id, opts = {}) {
   const inst = { id, used: false, disabled: false, catUntil: 0 };
   p.augs.push(inst);
   if (G.draft) G.draft.picks.push({ pid: p.id, id, inst });
-  if (p.ai) markSeen([id]); else markGot(id);
+  if (p.ai) markSeen([id]); else if (!NET.online || p.id === NET.localSeat) markGot(id);
   io.sfx.play('aug');
   say(`✨ ${p.name} 증강 획득: ${A.name}`, p.color);
   render();
@@ -736,7 +739,7 @@ export const ON_ACQ = {
     const summary = s => { const q = G.players.find(x => G.mask[x.id] === s); return `판 위 ${q.pieces.filter(onBoard).length} · 대기 ${q.pieces.filter(x => x.pos === HOME).length} · 완주 ${doneCount(q)}`; };
     for (const q of others(p)) {
       const opts = symList.map(s => ({ label: `「${s}」`, sub: summary(s), value: s }));
-      const g = await io.ui.choose(q, `${q.name}님, 당신의 말은 어느 기호일까요?`, opts, { blind: true, peek: true, ai: () => (Math.random() < 0.7 ? G.mask[q.id] : pick(symList)) });
+      const g = await io.ui.choose(q, `${q.name}님, 당신의 말은 어느 기호일까요?`, opts, { blind: true, peek: true, ai: () => (rand() < 0.7 ? G.mask[q.id] : pick(symList)) });
       if (g === G.mask[q.id]) say(`${q.name} 정답!`);
       else { q.skip++; say(`${q.name} 오답 → 차례 1번 건너뜀`, q.color); }
     }
@@ -1367,7 +1370,7 @@ export function drawOptions(p, cat, excl) {
   const owned = id => p.augs.some(a => a.id === id);
   const opts = [];
   if (p.delivery) { if (!owned(p.delivery) && !excl.has(p.delivery) && augAllowed(p.delivery)) opts.push(p.delivery); p.delivery = null; }
-  if (G.chosenRule && !owned('cat') && !opts.includes('cat') && !excl.has('cat') && Math.random() < 0.6) opts.push('cat');
+  if (G.chosenRule && !owned('cat') && !opts.includes('cat') && !excl.has('cat') && rand() < 0.6) opts.push('cat');
   const pool = shuffle(AUGS.filter(a => (a.cat === 'general' || a.cat === cat) && !owned(a.id) && !excl.has(a.id) && !opts.includes(a.id) && augAllowed(a.id)).map(a => a.id));
   while (opts.length < 3 && pool.length) opts.push(pool.pop());
   return opts;
@@ -1388,7 +1391,7 @@ export async function draftRound() {
         const opts = drawOptions(p, cat, excl);
         if (!opts.length) break;
         const forced = (G.chosenRule || has(p, 'catpick')) && opts.includes('cat');
-        if (!p.ai) markSeen(opts);
+        if (!p.ai && (!NET.online || p.id === NET.localSeat)) markSeen(opts);
         const id = await io.ui.draftPick(p, opts, forced, { k, times, cat });
         if (G.draft.banned.has(id)) {
           p.augs.push({ id, used: true, disabled: true, catUntil: 0 });

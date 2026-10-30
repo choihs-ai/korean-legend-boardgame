@@ -102,6 +102,32 @@ button:disabled{cursor:default}
 .turnlbl i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 .badge{flex:none;font-size:13px;font-weight:800;padding:4px 7px;border-radius:2px;letter-spacing:.06em}
 .badge.chaos{background:var(--plum);color:#fff}
+.badge.net{background:var(--ink3);color:var(--hanji);border:1px solid var(--line)}
+.badge.net.warn{border-color:var(--seal);color:#f0a498}
+.screen#online{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:var(--ink)}
+.on-head{display:flex;align-items:center;gap:12px}
+.on-head .mtitle{margin:0;font-size:22px}
+.on-body{display:flex;flex-direction:column;gap:18px}
+.field{width:100%;min-height:48px;border-radius:3px;border:1.5px solid var(--line);background:var(--ink2);color:var(--hanji);padding:0 12px;font-size:16px;font-weight:700}
+.field:focus{outline:2px solid var(--hanji2);outline-offset:1px}
+.field.code{font-family:var(--font-display);font-size:26px;letter-spacing:.35em;text-align:center;text-transform:uppercase;padding-left:.35em}
+.code-big{font-family:var(--font-display);font-size:52px;letter-spacing:.3em;padding-left:.3em;text-align:center;line-height:1.2;color:var(--hanji)}
+.row2{display:flex;gap:10px}
+.row2>*{flex:1;min-width:0}
+.mem{display:flex;align-items:center;gap:10px;min-height:48px;border-bottom:1px solid var(--line)}
+.mem .sdot{flex:none;width:14px;height:14px;border-radius:2px}
+.mem b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mem .tag{flex:none;font-size:13px;color:var(--muted)}
+.mem .tag.off{color:#f0a498}
+.mem .tag.ok{color:var(--hanji2)}
+.mem button{flex:none;min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:3px;font-weight:700;font-size:13px}
+.setup-card > .mbtn,.on-body > .mbtn,.on-body > .start-btn{flex:none;align-items:center;justify-content:center;text-align:center}
+.row2 .mbtn{flex:1 1 0;align-items:center;justify-content:center;text-align:center}
+.field.code::placeholder{font-family:var(--font-body);font-size:16px;letter-spacing:.04em;color:var(--muted)}
+.on-body > .start-btn:disabled{opacity:.45}
+.on-note{margin:0;color:var(--muted);font-size:13px;line-height:1.6}
+.on-err{margin:0;padding:10px 12px;border:1.5px solid var(--seal);border-radius:3px;font-weight:700;line-height:1.5}
+#chips .mbtn{flex:none;min-height:44px;padding:0 12px}
 .ibtn{flex:none;min-width:44px;height:44px;border-radius:3px;border:1px solid var(--line);font-weight:700;font-size:13px;padding:0 6px}
 .ibtn:active{background:var(--ink3)}
 .ibtn.off{color:var(--muted);text-decoration:line-through}
@@ -364,6 +390,7 @@ button:disabled{cursor:default}
     </section>
     <button type="button" id="resumeBtn" class="start-btn resume" hidden>이어하기</button>
     <button type="button" id="startBtn" class="start-btn">판 펼치기</button>
+    <button type="button" id="onlineBtn" class="start-btn resume">온라인 대전<small>방 코드로 친구와 함께 · 2~4명</small></button>
     <div class="title-links">
       <button type="button" id="rulesBtn1">룰북</button>
       <button type="button" id="bookBtn1">증강 도감 72</button>
@@ -373,11 +400,19 @@ button:disabled{cursor:default}
   </div>
 </div>
 
+<div id="online" class="screen" hidden>
+  <div class="title-inner">
+    <header class="on-head"><button type="button" id="onBack" class="ibtn">뒤로</button><h2 class="mtitle" id="onTitle">온라인 대전</h2></header>
+    <div id="onBody" class="on-body"></div>
+  </div>
+</div>
+
 <div id="game" class="screen" hidden>
   <header id="topbar">
     <div class="rbox"><b id="roundLbl">1R</b><div class="rgauge" id="rGauge"></div></div>
     <div id="turnLbl" class="turnlbl"></div>
     <span id="chaosBadge" class="badge chaos" hidden>혼돈</span>
+    <span id="netBadge" class="badge net" hidden></span>
     <button type="button" id="sndBtn" class="ibtn" aria-label="효과음 켜기/끄기">소리</button>
     <button type="button" id="bookBtn" class="ibtn" aria-label="증강 도감과 룰북">도감</button>
     <button type="button" id="menuBtn" class="ibtn" aria-label="메뉴">메뉴</button>
