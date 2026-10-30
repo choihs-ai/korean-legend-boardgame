@@ -139,7 +139,8 @@ export async function eliminate(p, why) {
   say(`💀 ${p.name} 탈락 — ${why}`, '#c33');
   io.ui.flash(`${p.name} 탈락`, p.color);
   if (G.duel && (G.duel.caster === p.id || G.duel.target === p.id)) G.duel = null;
-  for (const q of G.players) if (!q.out && q.host === p.id) await eliminate(q, `거머리: ${p.name}와 동반 탈락`);
+  // 마지막 남은 한 명(1위 자리)까지 동반 탈락시키면 승자가 없어지므로 그 경우는 살려 둔다
+  for (const q of G.players) if (!q.out && q.host === p.id && freeRanks().length > 1) await eliminate(q, `거머리: ${p.name}와 동반 탈락`);
   checkContention();
   render();
 }
@@ -516,7 +517,7 @@ export async function doThrow(p, forced) {
   } else sets.push(throwSticks(p));
   if (has(p, 'dual')) {
     sets.push(throwSticks(p));
-    sets.forEach(s => { if (s.v === 5) { s.v = 1; s.dualFix = true; } });
+    sets.forEach(s => { if (s.v === 4 || s.v === 5) { s.v = 1; s.dualFix = true; } else if (s.v === 3) { s.v = 2; s.dualFix = true; } });
   }
   p.st.throws++;
   io.sfx.play('throw');
@@ -525,7 +526,7 @@ export async function doThrow(p, forced) {
     if (s.v === 'OUT') { say(`🎋 ${p.name} 과유불급: 앞면 ${stickCount(p)}개!`, '#e66'); await eliminate(p, '과유불급 (앞면 전부)'); return; }
     T.chips.push(s.v);
     if (s.v >= 4) T.throwsLeft++;
-    say(`${p.name}: ${resName(s.v)}${s.dualFix ? ' (이도류: 모→도)' : ''}${s.v >= 4 ? ' — 한 번 더!' : ''}`);
+    say(`${p.name}: ${resName(s.v)}${s.dualFix ? ' (이도류: 낮춰짐)' : ''}${s.v >= 4 ? ' — 한 번 더!' : ''}`);
     await recordResult(p, s.v);
     if (p.out || G.over) return;
   }

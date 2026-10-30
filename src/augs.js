@@ -38,7 +38,7 @@ export const AUGS = [
   { no: 32, id: 'fisher', name: '어부지리', cat: 'general', kind: 'passive', desc: '내 차례가 아닐 때 죽은 다른 플레이어의 말 개수 2개마다 개를 얻습니다.', how: '남의 차례에 남의 말이 2개 죽을 때마다 내 다음 차례에 개 칩 1개.' },
   { no: 33, id: 'illusion', name: '언제부터 착각한 거지?', cat: 'general', kind: 'instant', desc: '한 플레이어의 능력 하나를 지정해 3 라운드 동안 "고양이"로 바꿉니다. 이미 사용 완료한 증강은 바꿀 수 없습니다.', how: '지정한 증강이 3라운드 동안 능력 없는 고양이가 됩니다(고양이 좋아 발동 가능).' },
   { no: 34, id: 'throwhit', name: '윷을 잘 던져봐', cat: 'general', kind: 'active', desc: '1회, 윷을 던져서 플레이어를 맞춥니다. 해당 플레이어는 차례를 두 번 건너뜁니다.', how: '대상 플레이어 차례 2회 건너뜀.' },
-  { no: 35, id: 'dual', name: '이도류', cat: 'general', kind: 'passive', desc: '윷을 2개씩 모두 던지며, 모 결과는 도로 바뀝니다.', how: '한 번 던질 때 결과를 2개 얻고, 모는 도가 됩니다(추가 투척 없음).' },
+  { no: 35, id: 'dual', name: '이도류', cat: 'general', kind: 'passive', desc: '윷을 2개씩 모두 던지며, 윷·모는 도로, 걸은 개로 바뀝니다.', how: '한 번 던질 때 결과를 2개 얻고, 윷·모는 도, 걸은 개가 됩니다(추가 투척 없음).' },
   { no: 36, id: 'objection', name: '이의있음!', cat: 'general', kind: 'instant', desc: '이번 증강 선택을 취소하고 다시 고릅니다.', how: '선택창을 새로 뽑아 다시 고릅니다.' },
   { no: 37, id: 'jajin', name: '자진모리 장단', cat: 'general', kind: 'passive', desc: '걸이 2번 나올 때마다 개를 얻습니다.', how: '걸 2회마다 개 칩 1개 추가.' },
   { no: 38, id: 'moonwalk', name: '천마군림보 - 달걸음', cat: 'general', kind: 'passive', desc: '자신의 모든 말이 반대 방향으로 이동합니다.', how: '0→19→18…→1→0 방향. 지름길도 15·10에서 거꾸로 진입합니다.' },
