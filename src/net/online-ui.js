@@ -1,5 +1,5 @@
 // 온라인 대전 화면: 방 만들기 / 참가 / 대기실. 게임 화면은 기존 UI 를 그대로 쓴다.
-import { $, esc, PCOL } from '../util.js';
+import { $, APP_VERSION, esc, PCOL } from '../util.js';
 import { UI } from '../ui.js';
 import { R, animateMove } from '../render.js';
 import { SFX } from '../sound.js';
@@ -102,7 +102,7 @@ export const OnlineUI = {
   lobbyHtml(v) {
     const cfg = v.cfg, s = this.session;
     const finding = v.phase === 'join' || !v.cfg;
-    const mem = v.members.map(m => `<div class="mem"><i class="sdot" style="background:${PCOL[m.seat]}"></i><b>${esc(m.nick)}${m.me ? ' (나)' : ''}</b>${m.host ? '<span class="tag">방장</span>' : ''}<span class="tag ${m.live ? 'ok' : 'off'}">${m.live ? '연결됨' : '끊김'}</span>${v.isHost && !m.me ? `<button type="button" data-act="kick" data-sid="${esc(m.sid)}" aria-label="${esc(m.nick)} 내보내기">내보내기</button>` : ''}</div>`).join('');
+    const mem = v.members.map(m => `<div class="mem"><i class="sdot" style="background:${PCOL[m.seat]}"></i><b>${esc(m.nick)}${m.me ? ' (나)' : ''}</b>${m.av ? `<span class="tag">v${esc(m.av)}</span>` : ''}${m.host ? '<span class="tag">방장</span>' : ''}<span class="tag ${m.live ? 'ok' : 'off'}">${m.live ? '연결됨' : '끊김'}</span>${v.isHost && !m.me ? `<button type="button" data-act="kick" data-sid="${esc(m.sid)}" aria-label="${esc(m.nick)} 내보내기">내보내기</button>` : ''}</div>`).join('');
     const empty = cfg ? Array.from({ length: Math.max(0, cfg.hu - v.members.length) }, () => '<div class="mem"><i class="sdot" style="background:var(--line)"></i><b style="color:var(--muted)">비어 있음</b></div>').join('') : '';
     const aiN = cfg ? cfg.n - cfg.hu : 0;
     const startable = v.isHost && v.members.length >= 2 && v.phase === 'lobby';
@@ -168,7 +168,8 @@ export const OnlineUI = {
   },
   onError(e) {
     const msg = ERROR_TEXT[e.code] || (e.code === 'engine' ? '게임 진행 중 오류가 났어요.' : '연결에 문제가 생겼어요.');
-    if (e.code === 'startfail') { this.notice = msg; if (this.shown()) this.render(); return; }
+    if (e.code === 'startfail' || e.code === 'peerversion') { this.notice = e.code === 'peerversion' ? `${msg} (${e.nick || '상대'}: ${e.av ? 'v' + e.av : '예전 버전'})` : msg; if (this.shown()) this.render(); return; }
+    if (e.code === 'version') { this.error = `${msg} (방장: ${e.theirs ? 'v' + e.theirs : '예전 버전'}, 내 앱: v${APP_VERSION})`; this.busy = ''; if (!this.session.active) this.view = null; if (this.shown()) this.render(); else this.open(); return; }
     this.busy = '';
     if (!this.session.active) this.view = null;
     this.error = msg;

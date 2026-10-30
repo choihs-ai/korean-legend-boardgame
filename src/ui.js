@@ -1,5 +1,5 @@
 import { bumpGen, CFG, G, GEN, NET, setG, setSkip, SKIP } from './state.js';
-import { $, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, resName, sleep, TYPE_ICON, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
+import { $, APP_VERSION, DONE, DRAFT_ROUNDS, esc, HOME, KIM_TURNS, noEmoji, PCNAME, PCOL, pick, resName, sleep, TYPE_ICON, TYPE_NAME, WIN_FROM_ROUND } from './util.js';
 import { AUG_BY, AUGS, CAT_NAME, KIND_NAME } from './augs.js';
 import { SFX } from './sound.js';
 import { loadRecords, readSave } from './save.js';
@@ -97,6 +97,7 @@ export const UI = {
     $('#onlineBtn').innerHTML = og ? `온라인 대전<small>진행 중이던 방 ${esc(og.code)}이 있어요</small>` : '온라인 대전<small>방 코드로 친구와 함께 · 2~4명</small>';
     const rec = loadRecords(), seenN = AUGS.filter(a => rec.seen.includes(a.id)).length;
     $('#recordsLine').textContent = `전적 ${rec.games}판` + (rec.humanGames ? ` · 사람 승률 ${Math.round(rec.humanWins / rec.humanGames * 100)}% (${rec.humanWins}/${rec.humanGames})` : '') + ` · 증강 수집 ${seenN}/${AUGS.length}`;
+    $('#versionLine').textContent = `v${APP_VERSION}`;
     $('#bookBtn1').textContent = `증강 도감 ${seenN}/${AUGS.length}`;
     document.querySelectorAll('#countSeg button').forEach(b => b.classList.toggle('on', +b.dataset.n === CFG.n));
     document.querySelectorAll('#diffSeg button').forEach(b => b.classList.toggle('on', b.dataset.d === CFG.difficulty));

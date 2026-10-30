@@ -14,6 +14,8 @@
 import { sha256 } from './sha256.js';
 
 export const APP = 'aug1';
+// 온라인 규칙·진행 방식이 바뀌면 올린다. 다르면 같은 방에 들어올 수 없다(한쪽만 옛 방식으로 돌면 판이 어긋나기 때문)
+export const RULES_VER = 2;
 export const LIVE_MS = 15000;       // 이 시간 동안 소식이 없으면 연결이 끊긴 것으로 본다
 export const BEAT_MS = 2000;        // 변화가 없어도 이 간격으로 생존 신호를 올린다
 export const MIN_PUB_MS = 120;      // 연속 갱신 최소 간격
@@ -63,7 +65,7 @@ export function cleanState(r) {
   if (!isObj(r) || r.a !== APP) return null;
   const s = sidOk(r.s);
   if (!s) return null;
-  const o = { s, n: cleanText(r.n) || '손님', t: int(r.t, 0, 1e9, 0) };
+  const o = { s, n: cleanText(r.n) || '손님', t: int(r.t, 0, 1e9, 0), v: int(r.v, 0, 1000, 1), av: cleanText(r.av, 8), i: hex(r.i, 8) || '' };
   if (r.cr) {
     o.cr = 1; o.ph = ['L', 'S', 'R', 'P'].includes(r.ph) ? r.ph : 'L'; o.ep = int(r.ep, 0, 1e6, 0);
     o.cf = cleanCfg(r.cf); o.ro = cleanSidList(r.ro, 4);
@@ -87,8 +89,8 @@ export function cleanState(r) {
 }
 
 export class RoomCore {
-  constructor({ sid, nick, now = () => Date.now(), randHex, randInt, publish, onEvent = () => {} }) {
-    Object.assign(this, { sid, nick: cleanText(nick) || '손님', now, randHex, randInt, publishFn: publish, onEvent });
+  constructor({ sid, nick, now = () => Date.now(), randHex, randInt, publish, onEvent = () => {}, appVer = '', rulesVer = RULES_VER }) {
+    Object.assign(this, { sid, nick: cleanText(nick) || '손님', now, randHex, randInt, publishFn: publish, onEvent, appVer: cleanText(appVer, 8), rulesVer });
     this.phase = 'idle';           // idle | join | lobby | start | play | closed
     this.isHost = false; this.code = ''; this.cfg = null; this.ro = []; this.ep = 0; this.hostPh = 'L';
     this.peers = new Map();        // sid → { st, seenAt, gone }
@@ -99,7 +101,7 @@ export class RoomCore {
     this.hashes = []; this.desync = new Set();
     this.t = 0; this.lastKey = ''; this.lastPubAt = 0; this.dirty = true; this.leaving = false;
     this.startedAt = 0; this.joinedAt = 0; this.rejected = null; this.myEp = -1; this.secret = ''; this.commit = '';
-    this.hostSeenAt = 0; this.error = null; this.notified = ''; this.revealOut = false; this.repub = []; this.genAt = 0; this.syncing = false; this.syncSince = 0; this.started = false;
+    this.hostSeenAt = 0; this.error = null; this.notified = ''; this.revealOut = false; this.vetoed = new Set(); this.inst = randHex(4); this.repub = []; this.genAt = 0; this.syncing = false; this.syncSince = 0; this.started = false;
   }
 
   /* ===== 방 열기 / 들어가기 / 나가기 ===== */
@@ -151,7 +153,8 @@ export class RoomCore {
       const p = this.peers.get(st.s);
       if (!p) this.peers.set(st.s, { st, seenAt: now, gone: false });
       else {
-        if (st.t < p.st.t && p.st.t - st.t < 30) { p.gone = false; continue; }   // 늦게 도착한 오래된 상태는 무시 (재시작하면 t 가 크게 줄어드니 그건 받는다)
+        // 늦게 도착한 오래된 상태는 무시한다. 같은 기기가 새로고침으로 다시 시작했다면(실행 번호 i 가 다름) t 가 작아도 새 상태로 받는다
+        if (p.st.i === st.i && st.t < p.st.t && p.st.t - st.t < 30) { p.gone = false; continue; }
         if (p.st.t !== st.t || p.gone) p.seenAt = now;
         p.st = st; p.gone = false;
       }
@@ -198,6 +201,7 @@ export class RoomCore {
       return;
     }
     this.hostSeenAt = now;
+    if (h.st.v !== this.rulesVer) { this.fail('version', false, { theirs: h.st.av || '' }); return; }
     this.applyHost(h.st);
     if (h.st.ph !== 'L') { if (!h.st.ro.includes(this.sid)) this.reject('started'); return; }
     if (h.st.ro.includes(this.sid)) { this.phase = 'lobby'; this.rejected = null; this.emitLobby(); return; }
@@ -229,6 +233,7 @@ export class RoomCore {
     for (const p of this.peers.values()) {
       const s = p.st;
       if (s.cr) { this.fail('collision'); return; }
+      if (s.j && !s.lv && !this.ro.includes(s.s) && s.v !== this.rulesVer && !p.gone) { if (!this.vetoed.has(s.s)) { this.vetoed.add(s.s); this.onEvent('error', { code: 'peerversion', nick: s.n, av: s.av }); } continue; }
       if (s.j && !s.lv && !this.ro.includes(s.s) && this.ro.length < this.cfg.hu && !p.gone) { this.ro.push(s.s); changed = true; }
     }
     // 나갔거나 오래 소식이 없는 사람은 명단에서 뺀다
@@ -271,7 +276,7 @@ export class RoomCore {
         secrets.push(r[1]);
       }
       const cf = this.cfg;
-      const sd = sha256(`${APP}|${this.code}|${ep}|${JSON.stringify(cf)}|${roster.join(',')}|${secrets.join(',')}`);
+      const sd = sha256(`${APP}|v${this.rulesVer}|${this.code}|${ep}|${JSON.stringify(cf)}|${roster.join(',')}|${secrets.join(',')}`);
       const nk = roster.map(s => this.nickOf(s));
       if (host && host.st.g && host.st.g.sd !== sd) { this.fail('seedmismatch'); return; }
       this.adoptGame({ sd, cf, ro: roster.slice(), ep, nk }, false);
@@ -376,7 +381,8 @@ export class RoomCore {
 
   /* ===== 올리기 ===== */
   buildState() {
-    const st = { a: APP, s: this.sid, n: this.nick, t: this.t };
+    const st = { a: APP, s: this.sid, n: this.nick, t: this.t, v: this.rulesVer, i: this.inst };
+    if (this.appVer) st.av = this.appVer;
     if (this.isHost) { st.cr = 1; st.ph = this.hostPh; st.ep = this.ep; st.cf = this.cfg; st.ro = this.ro; }
     if (this.phase === 'join') st.j = 1;
     if (this.phase === 'lobby' && !this.isHost) st.j = 1;
@@ -453,15 +459,15 @@ export class RoomCore {
     const v = this.view(), key = JSON.stringify(v);
     if (key !== this.notified) { this.notified = key; this.onEvent('lobby', v); }
   }
-  fail(code, soft = false) {
+  fail(code, soft = false, extra = {}) {
     this.error = code; if (!soft) this.phase = 'closed';
-    this.onEvent('error', { code });
+    this.onEvent('error', { code, ...extra });
   }
   reject(code) { this.rejected = code; this.phase = 'closed'; this.onEvent('error', { code }); }
   view() {
     return {
       phase: this.phase, code: this.code, isHost: this.isHost, cfg: this.cfg, hostPh: this.hostPh,
-      members: this.ro.map((sid, i) => ({ sid, seat: i, nick: this.nickOf(sid), me: sid === this.sid, live: this.isLive(sid), host: i === 0 })),
+      members: this.ro.map((sid, i) => ({ sid, seat: i, nick: this.nickOf(sid), me: sid === this.sid, live: this.isLive(sid), host: i === 0, av: sid === this.sid ? this.appVer : (this.peers.get(sid)?.st.av || '') })),
       joined: this.ro.includes(this.sid), error: this.error,
     };
   }

@@ -29,6 +29,7 @@ export const sleep = ms => {
 };
 export const noEmoji = s => String(s).replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '').replace(/\s{2,}/g, ' ').trim();
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+export const APP_VERSION = '1.02';      // 화면에 보이는 버전
 export const HOME = -1, DONE = 99;
 export const DRAFT_ROUNDS = [1, 4, 8];      // 증강 선택 라운드 (시작 / 중간 / 마무리)
 export const WIN_FROM_ROUND = 3;           // 특수 승리는 이 라운드부터 발동

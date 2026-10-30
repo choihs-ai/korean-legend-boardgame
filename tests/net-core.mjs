@@ -133,6 +133,23 @@ check(stats.maxBytes <= 4096, '상태 크기 4KiB 이하', { max: stats.maxBytes
   check(![l2.host, ...l2.guests].some(n => n.events.some(e => e.type === 'desync')), '같은 해시는 알림 없음', {});
 }
 
+// 앱(규칙) 버전이 다르면 같은 방에 못 들어온다
+{
+  const net = new SimNet({ seed: 31, loss: 0 });
+  const host = net.addNode('Host');
+  host.core.create(makeCode(n => net.rint(n)), { n: 2, hu: 2, ch: 0, df: 'normal', ef: 0 });
+  host.core.tick();
+  const old = net.addNode('Guestold');
+  old.core.rulesVer = 1; old.core.appVer = '1.00';                // 예전 버전 참가자
+  old.core.join(host.core.code);
+  net.run(8000);
+  check(old.events.some(e => e.type === 'error' && e.data.code === 'version'), '버전 다른 참가자는 입장 거절(참가자 쪽 안내)', { ev: old.events.map(e => e.type + ':' + (e.data && e.data.code)) });
+  check(host.events.some(e => e.type === 'error' && e.data.code === 'peerversion'), '방장에게도 버전 다른 사람이 왔다고 알림', {});
+  check(host.core.ro.length === 1, '버전 다른 사람은 명단에 안 들어감', { ro: host.core.ro.length });
+  const ok = net.addNode('Guestnew'); ok.core.join(host.core.code); net.run(8000);
+  check(host.core.ro.length === 2, '같은 버전 참가자는 들어옴', {});
+}
+
 // 말도 안 되는 값은 걸러짐
 {
   const { cleanState, cleanText, cleanEntry, normCode } = await import('../src/net/room.js');

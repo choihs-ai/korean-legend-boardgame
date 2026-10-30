@@ -1,6 +1,7 @@
 // 온라인 대전 한 판의 생명주기: 전송 계층 연결 → 방 프로토콜(RoomCore) → 게임 연결(Bridge).
 // 화면(DOM)은 모르고, 화면 쪽은 on 콜백으로 소식을 받는다.
 import { Bridge } from './bridge.js';
+import { APP_VERSION } from '../util.js';
 import { RoomCore, makeCode, normCode, cleanText } from './room.js';
 import { chooseTransport } from './transports.js';
 
@@ -19,6 +20,8 @@ export const ERROR_TEXT = {
   seedmismatch: '시작 값이 맞지 않아 중단했어요. 다시 시작해 주세요.',
   noroom: '온라인 대전은 로그인한 상태에서만 쓸 수 있어요.',
   joinfail: '방에 들어가지 못했어요. 잠시 뒤에 다시 시도해 주세요.',
+  version: '방장의 앱 버전과 달라서 들어갈 수 없어요. 두 기기 모두 앱을 완전히 껐다가 인터넷이 되는 상태에서 다시 열어 같은 버전으로 맞춰 주세요.',
+  peerversion: '앱 버전이 다른 사람이 들어오려 해요. 그 사람이 앱을 완전히 껐다 다시 열어 업데이트해야 같이 할 수 있어요.',
   offline: '인터넷에 연결되지 않았어요.',
 };
 
@@ -78,7 +81,7 @@ export class Session {
     this.over = false;
     const sid = this.sid;
     this.tx = this.makeTransport ? this.makeTransport({ code, sid }) : chooseTransport({ code, sid, hash: this.env.hash(), win: this.env.win });
-    this.core = new RoomCore({ sid, nick: this.nick, randHex: randBytesHex, randInt, publish: st => { if (this.tx) this.tx.set(st); }, onEvent: (t, d) => this.onCore(t, d) });
+    this.core = new RoomCore({ sid, nick: this.nick, appVer: APP_VERSION, randHex: randBytesHex, randInt, publish: st => { if (this.tx) this.tx.set(st); }, onEvent: (t, d) => this.onCore(t, d) });
     try {
       await this.tx.open({ onPeers: list => { if (this.core) this.core.receive(list); }, onStatus: s => { this.status = s; this.emit('status', s); } });
     } catch (e) {
